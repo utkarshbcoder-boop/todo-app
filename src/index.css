@@ -1,0 +1,535 @@
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+/* ============================================
+   3D REALISTIC BACKGROUND
+   ============================================ */
+
+.bg-scene {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Animated gradient mesh background */
+.gradient-mesh {
+  position: absolute;
+  inset: -50%;
+  width: 200%;
+  height: 200%;
+  background:
+    radial-gradient(ellipse 600px 600px at 20% 30%, rgba(99, 102, 241, 0.15) 0%, transparent 70%),
+    radial-gradient(ellipse 500px 500px at 75% 20%, rgba(168, 85, 247, 0.12) 0%, transparent 70%),
+    radial-gradient(ellipse 700px 400px at 50% 80%, rgba(59, 130, 246, 0.1) 0%, transparent 70%),
+    radial-gradient(ellipse 400px 600px at 85% 70%, rgba(236, 72, 153, 0.08) 0%, transparent 70%),
+    radial-gradient(ellipse 550px 350px at 10% 90%, rgba(34, 211, 238, 0.1) 0%, transparent 70%);
+  animation: meshDrift 30s ease-in-out infinite alternate;
+}
+
+.dark .gradient-mesh {
+  background:
+    radial-gradient(ellipse 600px 600px at 20% 30%, rgba(99, 102, 241, 0.2) 0%, transparent 70%),
+    radial-gradient(ellipse 500px 500px at 75% 20%, rgba(168, 85, 247, 0.18) 0%, transparent 70%),
+    radial-gradient(ellipse 700px 400px at 50% 80%, rgba(59, 130, 246, 0.15) 0%, transparent 70%),
+    radial-gradient(ellipse 400px 600px at 85% 70%, rgba(236, 72, 153, 0.12) 0%, transparent 70%),
+    radial-gradient(ellipse 550px 350px at 10% 90%, rgba(34, 211, 238, 0.14) 0%, transparent 70%);
+}
+
+@keyframes meshDrift {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  33% { transform: translate(-3%, 2%) rotate(1deg); }
+  66% { transform: translate(2%, -3%) rotate(-1deg); }
+  100% { transform: translate(-1%, 1%) rotate(0.5deg); }
+}
+
+/* Noise texture overlay for realism */
+.noise-overlay {
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  mix-blend-mode: overlay;
+}
+
+.dark .noise-overlay {
+  opacity: 0.06;
+}
+
+/* ============================================
+   FLOATING GLASSMORPHIC ORBS
+   ============================================ */
+
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(1px);
+  animation: orbFloat ease-in-out infinite;
+}
+
+.orb::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: inherit;
+  filter: blur(40px);
+  opacity: 0.6;
+}
+
+.orb::after {
+  content: '';
+  position: absolute;
+  top: 12%;
+  left: 18%;
+  width: 35%;
+  height: 25%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
+  filter: blur(6px);
+  transform: rotate(-30deg);
+}
+
+.dark .orb::after {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+@keyframes orbFloat {
+  0%, 100% {
+    transform: translateY(0) translateX(0) scale(1);
+  }
+  25% {
+    transform: translateY(-30px) translateX(15px) scale(1.02);
+  }
+  50% {
+    transform: translateY(-10px) translateX(-20px) scale(0.98);
+  }
+  75% {
+    transform: translateY(-40px) translateX(10px) scale(1.01);
+  }
+}
+
+/* ============================================
+   3D GEOMETRIC SHAPES
+   ============================================ */
+
+.scene-3d {
+  position: absolute;
+  inset: 0;
+  perspective: 1200px;
+  perspective-origin: 50% 50%;
+}
+
+/* --- CUBE --- */
+.geo-cube {
+  position: absolute;
+  transform-style: preserve-3d;
+  animation: geoSpin linear infinite;
+}
+
+.geo-cube .face {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  backface-visibility: visible;
+}
+
+/* Light theme faces */
+.geo-cube .face {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(168, 85, 247, 0.08));
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  box-shadow: inset 0 0 30px rgba(255, 255, 255, 0.1);
+}
+
+/* Dark theme faces */
+.dark .geo-cube .face {
+  background: linear-gradient(135deg, rgba(129, 140, 248, 0.15), rgba(167, 139, 250, 0.1));
+  border: 1px solid rgba(129, 140, 248, 0.2);
+  box-shadow: inset 0 0 30px rgba(255, 255, 255, 0.05);
+}
+
+/* Lighting: top face brighter, bottom face darker */
+.geo-cube .face-top {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(99, 102, 241, 0.15)) !important;
+}
+.geo-cube .face-bottom {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.05), rgba(0, 0, 0, 0.05)) !important;
+}
+.dark .geo-cube .face-top {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(129, 140, 248, 0.2)) !important;
+}
+.dark .geo-cube .face-bottom {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(0, 0, 0, 0.1)) !important;
+}
+
+.geo-cube .face-front  { transform: translateZ(calc(var(--gs) / 2)); }
+.geo-cube .face-back   { transform: rotateY(180deg) translateZ(calc(var(--gs) / 2)); }
+.geo-cube .face-left   { transform: rotateY(-90deg) translateZ(calc(var(--gs) / 2)); }
+.geo-cube .face-right  { transform: rotateY(90deg) translateZ(calc(var(--gs) / 2)); }
+.geo-cube .face-top    { transform: rotateX(90deg) translateZ(calc(var(--gs) / 2)); }
+.geo-cube .face-bottom { transform: rotateX(-90deg) translateZ(calc(var(--gs) / 2)); }
+
+@keyframes geoSpin {
+  0%   { transform: rotateX(var(--grx0)) rotateY(var(--gry0)) rotateZ(var(--grz0)) translateY(var(--gy0)); }
+  100% { transform: rotateX(var(--grx1)) rotateY(var(--gry1)) rotateZ(var(--grz1)) translateY(var(--gy1)); }
+}
+
+/* --- OCTAHEDRON --- */
+.geo-octa {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  animation: geoSpin linear infinite;
+}
+
+.octa-face {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-left: solid transparent;
+  border-right: solid transparent;
+  border-bottom: solid;
+  transform-origin: bottom center;
+}
+
+/* Light theme octahedron */
+.octa-face {
+  border-bottom-color: rgba(99, 102, 241, 0.1);
+  filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.1));
+}
+.dark .octa-face {
+  border-bottom-color: rgba(129, 140, 248, 0.12);
+  filter: drop-shadow(0 0 8px rgba(129, 140, 248, 0.15));
+}
+
+/* --- SPHERE (CSS approximated) --- */
+.geo-sphere {
+  position: absolute;
+  border-radius: 50%;
+  transform-style: preserve-3d;
+  animation: orbFloat ease-in-out infinite;
+}
+
+/* Light theme sphere */
+.geo-sphere {
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.4), rgba(99, 102, 241, 0.12) 50%, rgba(99, 102, 241, 0.04) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.12);
+  box-shadow:
+    inset -8px -8px 20px rgba(0, 0, 0, 0.05),
+    inset 4px 4px 15px rgba(255, 255, 255, 0.3),
+    0 0 40px rgba(99, 102, 241, 0.08);
+}
+
+/* Dark theme sphere */
+.dark .geo-sphere {
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.15), rgba(129, 140, 248, 0.15) 50%, rgba(99, 102, 241, 0.06) 100%);
+  border: 1px solid rgba(129, 140, 248, 0.15);
+  box-shadow:
+    inset -8px -8px 20px rgba(0, 0, 0, 0.15),
+    inset 4px 4px 15px rgba(255, 255, 255, 0.08),
+    0 0 60px rgba(129, 140, 248, 0.1);
+}
+
+/* Sphere specular highlight */
+.geo-sphere::after {
+  content: '';
+  position: absolute;
+  top: 15%;
+  left: 20%;
+  width: 30%;
+  height: 20%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  filter: blur(4px);
+  transform: rotate(-20deg);
+}
+
+.dark .geo-sphere::after {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ============================================
+   FLOATING PARTICLES
+   ============================================ */
+
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  animation: particleFloat linear infinite;
+}
+
+/* Light theme particles */
+.particle {
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.6), rgba(99, 102, 241, 0) 70%);
+  box-shadow: 0 0 6px rgba(99, 102, 241, 0.3);
+}
+
+/* Dark theme particles */
+.dark .particle {
+  background: radial-gradient(circle, rgba(165, 180, 252, 0.7), rgba(165, 180, 252, 0) 70%);
+  box-shadow: 0 0 8px rgba(165, 180, 252, 0.4);
+}
+
+@keyframes particleFloat {
+  0% {
+    transform: translateY(0) translateX(0) scale(0);
+    opacity: 0;
+  }
+  10% {
+    transform: translateY(-5vh) translateX(3px) scale(1);
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-100vh) translateX(-5px) scale(0.5);
+    opacity: 0;
+  }
+}
+
+/* ============================================
+   LIGHT RAYS
+   ============================================ */
+
+.light-ray {
+  position: absolute;
+  width: 2px;
+  background: linear-gradient(to bottom, transparent, rgba(99, 102, 241, 0.08), transparent);
+  animation: rayPulse ease-in-out infinite;
+}
+
+.dark .light-ray {
+  background: linear-gradient(to bottom, transparent, rgba(129, 140, 248, 0.1), transparent);
+}
+
+@keyframes rayPulse {
+  0%, 100% { opacity: 0.3; transform: scaleY(0.8); }
+  50% { opacity: 0.8; transform: scaleY(1.1); }
+}
+
+/* ============================================
+   GLOW SPOTS
+   ============================================ */
+
+.glow-spot {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  animation: glowPulse ease-in-out infinite;
+}
+
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.15); }
+}
+
+/* ============================================
+   SHADOW / DEPTH LAYER
+   ============================================ */
+
+.depth-shadow {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0, 0, 0, 0.03), transparent 70%);
+  filter: blur(20px);
+}
+
+.dark .depth-shadow {
+  background: radial-gradient(circle, rgba(0, 0, 0, 0.15), transparent 70%);
+}
+
+/* ============================================
+   SKELETON LOADING
+   ============================================ */
+
+.skeleton {
+  background: linear-gradient(90deg, rgba(200,200,200,0.1) 25%, rgba(200,200,200,0.2) 50%, rgba(200,200,200,0.1) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 12px;
+}
+
+.dark .skeleton {
+  background: linear-gradient(90deg, rgba(80,80,80,0.1) 25%, rgba(80,80,80,0.2) 50%, rgba(80,80,80,0.1) 75%);
+  background-size: 200% 100%;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ============================================
+   TOUCH / SWIPE
+   ============================================ */
+
+.touch-none {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ============================================
+   CUSTOM SCROLLBAR
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.4);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.6);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(75, 85, 99, 0.4);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(75, 85, 99, 0.6);
+}
+
+/* ============================================
+   FOCUS VISIBLE
+   ============================================ */
+
+*:focus-visible {
+  outline: 2px solid rgb(99, 102, 241);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* ============================================
+   SELECTION
+   ============================================ */
+
+::selection {
+  background: rgba(99, 102, 241, 0.2);
+  color: inherit;
+}
+
+.dark ::selection {
+  background: rgba(129, 140, 248, 0.3);
+}
+
+/* ============================================
+   PREFERS REDUCED MOTION
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .orb,
+  .geo-cube,
+  .geo-sphere,
+  .particle,
+  .light-ray,
+  .glow-spot {
+    animation: none !important;
+  }
+}
+
+/* ============================================
+   SAFE AREA (iOS / notch)
+   ============================================ */
+
+@supports (padding: env(safe-area-inset-top)) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* ============================================
+   MARKDOWN PROSE STYLES
+   ============================================ */
+
+.prose p {
+  margin: 0.4em 0;
+}
+
+.prose p:first-child {
+  margin-top: 0;
+}
+
+.prose p:last-child {
+  margin-bottom: 0;
+}
+
+.prose strong {
+  font-weight: 600;
+}
+
+.prose em {
+  font-style: italic;
+}
+
+.prose code {
+  background: rgba(99, 102, 241, 0.1);
+  padding: 0.15em 0.3em;
+  border-radius: 4px;
+  font-size: 0.875em;
+}
+
+.dark .prose code {
+  background: rgba(129, 140, 248, 0.15);
+}
+
+.prose a {
+  color: rgb(99, 102, 241);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose a:hover {
+  color: rgb(79, 70, 229);
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.25em;
+  margin: 0.4em 0;
+}
+
+.prose li {
+  margin: 0.15em 0;
+}
