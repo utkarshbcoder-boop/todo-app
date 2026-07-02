@@ -25,6 +25,8 @@ export const VIEW_TABS = [
   { key: 'overdue', label: 'Overdue', color: 'text-red-500' },
   { key: 'today', label: 'Today', color: 'text-amber-500' },
   { key: 'week', label: 'This Week' },
+  { key: 'recurring', label: 'Recurring', color: 'text-purple-500' },
+  { key: 'trash', label: 'Trash', color: 'text-gray-500' },
   { key: 'dashboard', label: 'Stats' },
 ]
 export const CATEGORY_FILTERS = ['All', 'Work', 'Personal', 'Health', 'Finance', 'Other']
@@ -42,3 +44,4 @@ export const priorityColors = {
   Medium: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800',
   Low: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800',
 }
+

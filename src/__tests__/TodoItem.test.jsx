@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import TodoItem from '../components/TodoItem'
 import { useTodoStore } from '../store/todoStore'
+import { TestWrapper } from './testWrapper'
 
 const sampleTodo = {
   id: 'test-1',
@@ -14,6 +15,8 @@ const sampleTodo = {
   notes: '',
   tags: [],
   subtasks: [],
+  attachments: [],
+  blockedBy: [],
   recurrence: 'none',
   createdAt: new Date().toISOString(),
 }
@@ -27,23 +30,23 @@ describe('TodoItem', () => {
   })
 
   it('renders todo text', () => {
-    render(<TodoItem todo={sampleTodo} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />)
+    render(<TodoItem todo={sampleTodo} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />, { wrapper: TestWrapper })
     expect(screen.getByText('Test todo')).toBeInTheDocument()
   })
 
   it('renders priority badge', () => {
-    render(<TodoItem todo={sampleTodo} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />)
+    render(<TodoItem todo={sampleTodo} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />, { wrapper: TestWrapper })
     expect(screen.getByText('High')).toBeInTheDocument()
   })
 
   it('renders category badge', () => {
-    render(<TodoItem todo={sampleTodo} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />)
+    render(<TodoItem todo={sampleTodo} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />, { wrapper: TestWrapper })
     expect(screen.getByText('Work')).toBeInTheDocument()
   })
 
   it('calls onToggle when complete button clicked', async () => {
     const onToggle = vi.fn()
-    render(<TodoItem todo={sampleTodo} onToggle={onToggle} onDelete={() => {}} onUpdate={() => {}} />)
+    render(<TodoItem todo={sampleTodo} onToggle={onToggle} onDelete={() => {}} onUpdate={() => {}} />, { wrapper: TestWrapper })
     const checkbox = screen.getAllByRole('checkbox')[1]
     await userEvent.click(checkbox)
     expect(onToggle).toHaveBeenCalledWith('test-1')
@@ -51,7 +54,7 @@ describe('TodoItem', () => {
 
   it('calls onDelete when delete button clicked', async () => {
     const onDelete = vi.fn()
-    render(<TodoItem todo={sampleTodo} onToggle={() => {}} onDelete={onDelete} onUpdate={() => {}} />)
+    render(<TodoItem todo={sampleTodo} onToggle={() => {}} onDelete={onDelete} onUpdate={() => {}} />, { wrapper: TestWrapper })
     const deleteBtn = screen.getByLabelText('Delete "Test todo"')
     await userEvent.click(deleteBtn)
     expect(onDelete).toHaveBeenCalledWith('test-1')
@@ -59,14 +62,14 @@ describe('TodoItem', () => {
 
   it('shows completed state with line-through', () => {
     const completed = { ...sampleTodo, completed: true }
-    render(<TodoItem todo={completed} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />)
+    render(<TodoItem todo={completed} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />, { wrapper: TestWrapper })
     const text = screen.getByText('Test todo')
     expect(text.className).toContain('line-through')
   })
 
   it('renders tags', () => {
     const withTags = { ...sampleTodo, tags: ['urgent', 'review'] }
-    render(<TodoItem todo={withTags} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />)
+    render(<TodoItem todo={withTags} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />, { wrapper: TestWrapper })
     expect(screen.getByText('#urgent')).toBeInTheDocument()
     expect(screen.getByText('#review')).toBeInTheDocument()
   })
@@ -76,18 +79,18 @@ describe('TodoItem', () => {
       { id: 's1', text: 'Sub 1', completed: true },
       { id: 's2', text: 'Sub 2', completed: false },
     ]}
-    render(<TodoItem todo={withSubs} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />)
+    render(<TodoItem todo={withSubs} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />, { wrapper: TestWrapper })
     expect(screen.getByText('1/2')).toBeInTheDocument()
   })
 
   it('has proper ARIA on select checkbox', () => {
-    render(<TodoItem todo={sampleTodo} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />)
+    render(<TodoItem todo={sampleTodo} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />, { wrapper: TestWrapper })
     const selectCheckbox = screen.getByRole('checkbox', { name: /Select todo/i })
     expect(selectCheckbox).toHaveAttribute('aria-checked', 'false')
   })
 
   it('has proper ARIA on complete checkbox', () => {
-    render(<TodoItem todo={sampleTodo} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />)
+    render(<TodoItem todo={sampleTodo} onToggle={() => {}} onDelete={() => {}} onUpdate={() => {}} />, { wrapper: TestWrapper })
     const completeCheckbox = screen.getByRole('checkbox', { name: /Mark.*as complete/i })
     expect(completeCheckbox).toHaveAttribute('aria-checked', 'false')
   })

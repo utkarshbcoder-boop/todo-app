@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../App'
 import { useTodoStore } from '../store/todoStore'
+import { useUserStore } from '../store/userStore'
 
 describe('App', () => {
   beforeEach(() => {
@@ -13,6 +14,10 @@ describe('App', () => {
       selectedIds: [],
       history: [],
       future: [],
+    })
+    useUserStore.setState({
+      user: { name: 'Test User', email: 'test@example.com', picture: null },
+      isAuthenticated: true,
     })
   })
 

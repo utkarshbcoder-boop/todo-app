@@ -1,15 +1,19 @@
-import { useState, useRef, memo } from 'react'
+import { useState, useRef, memo, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { format } from 'date-fns/format'
 import { isPast } from 'date-fns/isPast'
 import { isToday } from 'date-fns/isToday'
 import { parseISO } from 'date-fns/parseISO'
 import Markdown from 'react-markdown'
+import confetti from 'canvas-confetti'
 import { useTodoStore } from '../store/todoStore'
 import { categoryIcons, priorityColors } from '../constants'
+import { useI18n } from '../i18n/useI18n'
+import { useFeatureFlag } from '../hooks/useFeatureFlag'
 import TodoForm from './TodoForm'
 
 export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
+  const { t } = useI18n()
   const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [subtaskInput, setSubtaskInput] = useState('')
@@ -21,6 +25,13 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
   const { addSubtask, toggleSubtask, deleteSubtask, selectTodo, selectedIds, snoozeTodo } = useTodoStore()
   const isSelected = selectedIds.includes(todo.id)
 
+  const tagsEnabled = useFeatureFlag('tags')
+  const subtasksEnabled = useFeatureFlag('subtasks')
+  const notesEnabled = useFeatureFlag('notes')
+  const recurrenceEnabled = useFeatureFlag('recurrence')
+  const attachmentsEnabled = useFeatureFlag('attachments')
+  const dependenciesEnabled = useFeatureFlag('dependencies')
+
   const dueDateObj = todo.dueDate ? parseISO(todo.dueDate) : null
   const isOverdue = dueDateObj && isPast(dueDateObj) && !isToday(dueDateObj) && !todo.completed
   const isDueToday = dueDateObj && isToday(dueDateObj) && !todo.completed
@@ -29,6 +40,16 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
   const totalSubtasks = todo.subtasks?.length || 0
 
   const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
+
+  const handleToggle = useCallback(() => {
+    onToggle(todo.id)
+    if (!todo.completed) {
+      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      if (!prefersReducedMotion) {
+        confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 }, colors: ['#6366f1', '#a855f7', '#ec4899'] })
+      }
+    }
+  }, [todo.id, todo.completed, onToggle])
 
   const handleTouchStart = (e) => {
     if (editing) return
@@ -46,7 +67,7 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
   }
   const handleTouchEnd = () => {
     if (Math.abs(swipeX) > 100) {
-      if (swipeX > 0) onToggle(todo.id)
+      if (swipeX > 0) handleToggle()
       else onDelete(todo.id)
     }
     setSwipeX(0)
@@ -88,8 +109,8 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      className={`group bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl border shadow-sm hover:shadow-md hover:shadow-gray-200/50 dark:hover:shadow-gray-900/50 transition-shadow duration-200 p-4 ${
-        isSelected ? 'border-indigo-400 dark:border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-800' : 'border-gray-100 dark:border-gray-700'
+      className={`group todo-glass rounded-2xl p-4 ${
+        isSelected ? 'border-indigo-400 dark:border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-800' : ''
       } ${todo.completed ? 'opacity-60' : ''}`}
     >
       <div className="flex items-start gap-3">
@@ -111,7 +132,7 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
         </button>
 
         {/* Complete toggle */}
-        <button onClick={() => onToggle(todo.id)} role="checkbox" aria-checked={todo.completed} aria-label={`Mark "${todo.text}" as ${todo.completed ? 'incomplete' : 'complete'}`}
+        <button onClick={handleToggle} role="checkbox" aria-checked={todo.completed} aria-label={`Mark "${todo.text}" as ${todo.completed ? 'incomplete' : 'complete'}`}
           className={`mt-0.5 flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all cursor-pointer ${
             todo.completed ? 'bg-indigo-600 border-indigo-600' : 'border-gray-300 dark:border-gray-600 hover:border-indigo-500'
           }`}>
@@ -129,10 +150,10 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
             <p className={`text-gray-800 dark:text-gray-100 font-medium leading-snug ${todo.completed ? 'line-through text-gray-400 dark:text-gray-500' : ''}`}>
               {todo.text}
             </p>
-            {todo.recurrence !== 'none' && <span className="text-xs text-gray-400 dark:text-gray-500" title={`Repeats ${todo.recurrence}`}>🔁</span>}
+            {recurrenceEnabled && todo.recurrence !== 'none' && <span className="text-xs text-gray-400 dark:text-gray-500" title={`Repeats ${todo.recurrence}`}>🔁</span>}
           </div>
 
-          {todo.tags?.length > 0 && (
+          {tagsEnabled && todo.tags?.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1.5">
               {todo.tags.map((tag) => (
                 <span key={tag} className="text-xs px-2 py-0.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full">#{tag}</span>
@@ -147,7 +168,7 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
             <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-600">
               {todo.category}
             </span>
-            {totalSubtasks > 0 && (
+            {subtasksEnabled && totalSubtasks > 0 && (
               <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full border ${
                 completedSubtasks === totalSubtasks
                   ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
@@ -163,23 +184,33 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
                 {isOverdue ? 'Overdue' : isDueToday ? 'Due today' : format(dueDateObj, 'MMM d, yyyy')}
               </span>
             )}
+            {attachmentsEnabled && todo.attachments?.length > 0 && (
+              <span className="text-xs font-medium px-2.5 py-0.5 rounded-full border bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border-orange-200 dark:border-orange-800">
+                📎 {todo.attachments.length}
+              </span>
+            )}
+            {dependenciesEnabled && todo.blockedBy?.length > 0 && (
+              <span className="text-xs font-medium px-2.5 py-0.5 rounded-full border bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800">
+                🔗 {t('blockedBy')}
+              </span>
+            )}
           </div>
 
-          {(todo.notes || totalSubtasks > 0) && (
+          {(notesEnabled && todo.notes || subtasksEnabled && totalSubtasks > 0 || attachmentsEnabled && todo.attachments?.length > 0) && (
             <button onClick={() => setExpanded(!expanded)}
               className="mt-2 text-xs font-medium text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-all cursor-pointer">
-              {expanded ? '▾ Hide details' : `▸ ${todo.notes ? 'Notes' : ''}${todo.notes && totalSubtasks > 0 ? ' · ' : ''}${totalSubtasks > 0 ? `${totalSubtasks} subtasks` : ''}`}
+              {expanded ? '▾ Hide details' : `▸ ${notesEnabled && todo.notes ? 'Notes' : ''}${notesEnabled && todo.notes && subtasksEnabled && totalSubtasks > 0 ? ' · ' : ''}${subtasksEnabled && totalSubtasks > 0 ? `${totalSubtasks} subtasks` : ''}${(notesEnabled && todo.notes || subtasksEnabled && totalSubtasks > 0) && attachmentsEnabled && todo.attachments?.length > 0 ? ' · ' : ''}${attachmentsEnabled && todo.attachments?.length > 0 ? `${todo.attachments.length} files` : ''}`}
             </button>
           )}
 
           {expanded && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-2 space-y-2">
-              {todo.notes && (
+              {notesEnabled && todo.notes && (
                 <div className="text-sm text-gray-500 dark:text-gray-400 pl-1 border-l-2 border-gray-200 dark:border-gray-600 ml-1 prose prose-sm dark:prose-invert max-w-none break-words">
                   <Markdown>{todo.notes}</Markdown>
                 </div>
               )}
-              {totalSubtasks > 0 && (
+              {subtasksEnabled && totalSubtasks > 0 && (
                 <div className="space-y-1">
                   {todo.subtasks.map((st) => (
                     <div key={st.id} className="flex items-center gap-2 text-sm">
@@ -193,6 +224,7 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
                   ))}
                 </div>
               )}
+              {subtasksEnabled && (
               <div className="flex gap-2">
                 <label htmlFor={`subtask-input-${todo.id}`} className="sr-only">Add subtask</label>
                 <input id={`subtask-input-${todo.id}`} type="text" value={subtaskInput} onChange={(e) => setSubtaskInput(e.target.value)}
@@ -201,6 +233,18 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
                   className="flex-1 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all placeholder:text-gray-400 dark:placeholder:text-gray-500" />
                 <button onClick={handleAddSubtask} className="px-2 py-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-all cursor-pointer">Add</button>
               </div>
+              )}
+              {attachmentsEnabled && todo.attachments?.length > 0 && (
+                <div className="space-y-1">
+                  {todo.attachments.map((att) => (
+                    <div key={att.id} className="flex items-center gap-2 text-sm p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
+                      <span>📎</span>
+                      <a href={att.dataUrl} download={att.name} className="flex-1 text-indigo-600 dark:text-indigo-400 hover:underline truncate">{att.name}</a>
+                      <span className="text-xs text-gray-400">{(att.size / 1024).toFixed(1)}KB</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </motion.div>
           )}
         </div>

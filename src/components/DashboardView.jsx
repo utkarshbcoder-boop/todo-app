@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid } from 'recharts'
 import { useTodoStore } from '../store/todoStore'
@@ -19,6 +19,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 
 export default function DashboardView() {
   const { todos, completions } = useTodoStore()
+  const [trendDays, setTrendDays] = useState(7)
 
   const categoryData = useMemo(() => {
     const counts = {}
@@ -42,18 +43,20 @@ export default function DashboardView() {
   }, [todos])
 
   const completionTrend = useMemo(() => {
-    const last7 = []
+    const data = []
     const now = new Date()
-    for (let i = 6; i >= 0; i--) {
+    for (let i = trendDays - 1; i >= 0; i--) {
       const d = new Date(now)
       d.setDate(d.getDate() - i)
       const dateStr = d.toISOString().split('T')[0]
-      const label = d.toLocaleDateString('en', { weekday: 'short' })
+      const label = trendDays <= 7
+        ? d.toLocaleDateString('en', { weekday: 'short' })
+        : d.toLocaleDateString('en', { month: 'short', day: 'numeric' })
       const entry = completions.find((c) => c.date === dateStr)
-      last7.push({ name: label, completions: entry?.count || 0 })
+      data.push({ name: label, completions: entry?.count || 0 })
     }
-    return last7
-  }, [completions])
+    return data
+  }, [completions, trendDays])
 
   const stats = useMemo(() => {
     const total = todos.length
@@ -151,7 +154,21 @@ export default function DashboardView() {
 
         {/* Completion trend */}
         <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700 p-5">
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">7-Day Trend</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{trendDays}-Day Trend</h3>
+            <div className="flex gap-1">
+              {[7, 14, 30].map((days) => (
+                <button key={days} onClick={() => setTrendDays(days)}
+                  className={`px-2 py-0.5 text-[10px] font-medium rounded-md transition-all cursor-pointer ${
+                    trendDays === days
+                      ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400'
+                      : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                  }`}>
+                  {days}d
+                </button>
+              ))}
+            </div>
+          </div>
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={completionTrend}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />

@@ -3,11 +3,12 @@ import { render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import TodoList from '../components/TodoList'
 import { useTodoStore } from '../store/todoStore'
+import { TestWrapper } from './testWrapper'
 
 const todos = [
-  { id: '1', text: 'Active work', completed: false, category: 'Work', priority: 'High', dueDate: null, notes: '', tags: [], subtasks: [], recurrence: 'none', createdAt: new Date().toISOString() },
-  { id: '2', text: 'Done personal', completed: true, category: 'Personal', priority: 'Low', dueDate: null, notes: '', tags: [], subtasks: [], recurrence: 'none', createdAt: new Date().toISOString() },
-  { id: '3', text: 'Another work', completed: false, category: 'Work', priority: 'Medium', dueDate: null, notes: '', tags: [], subtasks: [], recurrence: 'none', createdAt: new Date().toISOString() },
+  { id: '1', text: 'Active work', completed: false, category: 'Work', priority: 'High', dueDate: null, notes: '', tags: [], subtasks: [], attachments: [], blockedBy: [], recurrence: 'none', createdAt: new Date().toISOString() },
+  { id: '2', text: 'Done personal', completed: true, category: 'Personal', priority: 'Low', dueDate: null, notes: '', tags: [], subtasks: [], attachments: [], blockedBy: [], recurrence: 'none', createdAt: new Date().toISOString() },
+  { id: '3', text: 'Another work', completed: false, category: 'Work', priority: 'Medium', dueDate: null, notes: '', tags: [], subtasks: [], attachments: [], blockedBy: [], recurrence: 'none', createdAt: new Date().toISOString() },
 ]
 
 describe('TodoList', () => {
@@ -20,23 +21,24 @@ describe('TodoList', () => {
       sortAsc: false,
       viewTab: 'all',
       categoryFilter: 'All',
+      tagFilter: '',
     })
   })
 
   it('renders all todos in all view', () => {
-    render(<TodoList />)
+    render(<TodoList />, { wrapper: TestWrapper })
     expect(screen.getByText('Active work')).toBeInTheDocument()
     expect(screen.getByText('Done personal')).toBeInTheDocument()
     expect(screen.getByText('Another work')).toBeInTheDocument()
   })
 
   it('renders search input', () => {
-    render(<TodoList />)
+    render(<TodoList />, { wrapper: TestWrapper })
     expect(screen.getByPlaceholderText(/search todos/i)).toBeInTheDocument()
   })
 
   it('filters by search query', async () => {
-    render(<TodoList />)
+    render(<TodoList />, { wrapper: TestWrapper })
     await userEvent.type(screen.getByPlaceholderText(/search todos/i), 'personal')
     await waitFor(() => {
       expect(screen.getByText('Done personal')).toBeInTheDocument()
@@ -47,14 +49,14 @@ describe('TodoList', () => {
   })
 
   it('shows view tabs', () => {
-    render(<TodoList />)
+    render(<TodoList />, { wrapper: TestWrapper })
     expect(screen.getByRole('tab', { name: /all/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /active/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /done/i })).toBeInTheDocument()
   })
 
   it('switches to active tab and filters', async () => {
-    render(<TodoList />)
+    render(<TodoList />, { wrapper: TestWrapper })
     await userEvent.click(screen.getByRole('tab', { name: /active/i }))
     await waitFor(() => {
       expect(screen.queryByText('Done personal')).not.toBeInTheDocument()
@@ -64,14 +66,14 @@ describe('TodoList', () => {
   })
 
   it('shows category filter buttons in the filter bar', () => {
-    render(<TodoList />)
+    render(<TodoList />, { wrapper: TestWrapper })
     const filterBar = screen.getByRole('group', { name: /filter by category/i })
     expect(within(filterBar).getByRole('button', { name: /work/i })).toBeInTheDocument()
     expect(within(filterBar).getByRole('button', { name: /personal/i })).toBeInTheDocument()
   })
 
   it('filters by category', async () => {
-    render(<TodoList />)
+    render(<TodoList />, { wrapper: TestWrapper })
     const filterBar = screen.getByRole('group', { name: /filter by category/i })
     await userEvent.click(within(filterBar).getByRole('button', { name: /personal/i }))
     await waitFor(() => {
@@ -83,24 +85,24 @@ describe('TodoList', () => {
   })
 
   it('shows sort dropdown', () => {
-    render(<TodoList />)
+    render(<TodoList />, { wrapper: TestWrapper })
     expect(screen.getByLabelText(/sort by/i)).toBeInTheDocument()
   })
 
   it('shows empty state when no todos', () => {
     useTodoStore.setState({ todos: [] })
-    render(<TodoList />)
+    render(<TodoList />, { wrapper: TestWrapper })
     expect(screen.getByText(/no todos yet/i)).toBeInTheDocument()
   })
 
   it('shows select all button when todos exist', () => {
-    render(<TodoList />)
+    render(<TodoList />, { wrapper: TestWrapper })
     const checkboxes = screen.getAllByRole('checkbox', { name: /select all visible/i })
     expect(checkboxes.length).toBeGreaterThanOrEqual(1)
   })
 
   it('shows clear completed when completed todos exist', () => {
-    render(<TodoList />)
+    render(<TodoList />, { wrapper: TestWrapper })
     const buttons = screen.getAllByRole('button', { name: /clear.*completed/i })
     expect(buttons.length).toBeGreaterThanOrEqual(1)
   })

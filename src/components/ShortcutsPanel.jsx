@@ -6,6 +6,7 @@ const SHORTCUTS = [
   { keys: 'x', desc: 'Toggle select all' },
   { keys: 'd', desc: 'Dashboard' },
   { keys: 'e', desc: 'Export JSON' },
+  { keys: '1-6', desc: 'Filter by category' },
   { keys: 'Ctrl+Z', desc: 'Undo' },
   { keys: 'Ctrl+Y', desc: 'Redo' },
   { keys: '?', desc: 'Toggle shortcuts' },
