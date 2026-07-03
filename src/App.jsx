@@ -29,6 +29,8 @@ import ReviewPrompts from './components/ReviewPrompts'
 import LoginPage from './components/LoginPage'
 import { CATEGORY_FILTERS } from './constants'
 import ShortcutsPanel from './components/ShortcutsPanel'
+import FocusMode from './components/FocusMode'
+import QuickAdd from './components/QuickAdd'
 
 
 
@@ -57,6 +59,7 @@ function AppContent() {
   const [showAdminLogin, setShowAdminLogin] = useState(false)
   const [showAdminPortal, setShowAdminPortal] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [focusTodoId, setFocusTodoId] = useState(null)
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => {
     return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   })
@@ -128,13 +131,21 @@ function AppContent() {
     if (e.key >= '1' && e.key <= '6' && !isInput) { e.preventDefault(); setCategoryFilter(CATEGORY_FILTERS[parseInt(e.key) - 1]) }
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); toast.info('Undone') }
     if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); toast.info('Redone') }
-    if (e.key === 'Escape') { setShowForm(false); setPrefillDate(null); setShowShortcuts(false) }
+    if (e.key === 'q' && !isInput) { e.preventDefault() }
+    if (e.key === 'Escape') { setShowForm(false); setPrefillDate(null); setShowShortcuts(false); setFocusTodoId(null) }
   }, [undo, redo, handleToggleSelectAll, handleToggleDashboard, dashboardEnabled, setCategoryFilter])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
+
+  // Listen for focus mode trigger from TodoItem
+  useEffect(() => {
+    const handler = (e) => setFocusTodoId(e.detail)
+    window.addEventListener('focusTodo', handler)
+    return () => window.removeEventListener('focusTodo', handler)
+  }, [])
 
   const handleAddTodoWithDate = (date) => {
     setPrefillDate(date)
@@ -310,6 +321,13 @@ function AppContent() {
 
       <FeatureGate feature="bulkActions"><BulkActions /></FeatureGate>
       <FeatureGate feature="pomodoro"><PomodoroTimer /></FeatureGate>
+      <QuickAdd />
+
+      <AnimatePresence>
+        {focusTodoId && (
+          <FocusMode todoId={focusTodoId} onClose={() => setFocusTodoId(null)} />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

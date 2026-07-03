@@ -5,6 +5,7 @@ import { useTodoStore } from '../store/todoStore'
 import { toast } from 'sonner'
 import { useI18n } from '../i18n/useI18n'
 import { useFeatureFlag } from '../hooks/useFeatureFlag'
+import { parseNaturalInput, suggestFromText } from '../utils/smartSuggest'
 
 function parseNaturalDate(input) {
   if (!input) return ''
@@ -72,6 +73,7 @@ export default function TodoForm({ onSubmit, initialData, onCancel, prefillDate 
   const subtaskInputRef = useRef(null)
   const fileInputRef = useRef(null)
   const todos = useTodoStore((s) => s.todos)
+  const [nlpSuggestions, setNlpSuggestions] = useState(null)
 
   const tagsEnabled = useFeatureFlag('tags')
   const subtasksEnabled = useFeatureFlag('subtasks')
@@ -85,6 +87,38 @@ export default function TodoForm({ onSubmit, initialData, onCancel, prefillDate 
     const timer = setTimeout(() => textRef.current?.focus(), 100)
     return () => clearTimeout(timer)
   }, [])
+
+  // Real-time NLP parsing of the main text input
+  useEffect(() => {
+    if (!text || text.length < 3) {
+      setNlpSuggestions(null)
+      return
+    }
+    const timer = setTimeout(() => {
+      const parsed = parseNaturalInput(text)
+      const hasSuggestions = parsed.dueDate || parsed.priority || parsed.tags.length > 0 || parsed.suggestedCategory
+      setNlpSuggestions(hasSuggestions ? parsed : null)
+    }, 300) // debounce
+    return () => clearTimeout(timer)
+  }, [text])
+
+  const acceptNlpSuggestion = (type) => {
+    if (!nlpSuggestions) return
+    if (type === 'date' && nlpSuggestions.dueDate) setDueDate(nlpSuggestions.dueDate)
+    if (type === 'priority' && nlpSuggestions.priority) setPriority(nlpSuggestions.priority)
+    if (type === 'category' && nlpSuggestions.suggestedCategory) setCategory(nlpSuggestions.suggestedCategory)
+    if (type === 'tags' && nlpSuggestions.tags.length > 0) {
+      setTags(prev => [...new Set([...prev, ...nlpSuggestions.tags])])
+    }
+    if (type === 'all') {
+      if (nlpSuggestions.dueDate) setDueDate(nlpSuggestions.dueDate)
+      if (nlpSuggestions.priority) setPriority(nlpSuggestions.priority)
+      if (nlpSuggestions.suggestedCategory) setCategory(nlpSuggestions.suggestedCategory)
+      if (nlpSuggestions.tags.length > 0) setTags(prev => [...new Set([...prev, ...nlpSuggestions.tags])])
+      setText(nlpSuggestions.cleanText || text)
+      setNlpSuggestions(null)
+    }
+  }
 
   const quickDateOptions = useMemo(() => {
     const today = new Date()
@@ -168,6 +202,7 @@ export default function TodoForm({ onSubmit, initialData, onCancel, prefillDate 
       setRecurrence('none')
       setReminderAt('none')
       setShowAdvanced(false)
+      setNlpSuggestions(null)
     }
   }
 
@@ -185,8 +220,57 @@ export default function TodoForm({ onSubmit, initialData, onCancel, prefillDate 
         <label htmlFor="todo-text" className="sr-only">Todo text</label>
         <input
           ref={textRef} id="todo-text" type="text" value={text} onChange={(e) => setText(e.target.value)}
-          placeholder="What needs to be done?"
+          placeholder="What needs to be done? Try: Buy milk tomorrow !high #shopping"
           className="glass-input w-full px-4 py-3 text-gray-800 dark:text-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder:text-gray-400 dark:placeholder:text-gray-500" />
+
+        {/* NLP Suggestion Chips */}
+        <AnimatePresence>
+          {nlpSuggestions && (
+            <motion.div
+              initial={{ opacity: 0, y: -5, height: 0 }}
+              animate={{ opacity: 1, y: 0, height: 'auto' }}
+              exit={{ opacity: 0, y: -5, height: 0 }}
+              className="mt-2 flex flex-wrap items-center gap-1.5"
+            >
+              <span className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold mr-1">Smart:</span>
+              {nlpSuggestions.dueDate && (
+                <button type="button" onClick={() => acceptNlpSuggestion('date')}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all cursor-pointer">
+                  📅 {nlpSuggestions.dueDate}
+                </button>
+              )}
+              {nlpSuggestions.priority && (
+                <button type="button" onClick={() => acceptNlpSuggestion('priority')}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full border hover:opacity-80 transition-all cursor-pointer ${
+                    nlpSuggestions.priority === 'High' ? 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800' :
+                    'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                  }`}>
+                  ⚡ {nlpSuggestions.priority}
+                </button>
+              )}
+              {nlpSuggestions.suggestedCategory && (
+                <button type="button" onClick={() => acceptNlpSuggestion('category')}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-full border border-purple-200 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-all cursor-pointer">
+                  {categoryIcons[nlpSuggestions.suggestedCategory]} {nlpSuggestions.suggestedCategory}
+                </button>
+              )}
+              {nlpSuggestions.tags.map(tag => (
+                <button key={tag} type="button" onClick={() => acceptNlpSuggestion('tags')}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all cursor-pointer">
+                  #{tag}
+                </button>
+              ))}
+              <button type="button" onClick={() => acceptNlpSuggestion('all')}
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200 transition-all cursor-pointer uppercase tracking-wide">
+                ✓ Apply all
+              </button>
+              <button type="button" onClick={() => setNlpSuggestions(null)}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-all cursor-pointer">
+                ✕
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
