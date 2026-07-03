@@ -13,6 +13,30 @@ export default function AdminLogin({ onLogin, onClose }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  // Check if user has admin role
+  if (user?.role !== 'admin') {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+          className="w-full max-w-md bg-white dark:bg-gray-800 rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700 p-8">
+          <div className="text-center">
+            <div className="w-12 h-12 bg-red-600 rounded-xl flex items-center justify-center mx-auto mb-3">
+              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Access Denied</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">You do not have admin privileges</p>
+          </div>
+          <button onClick={onClose} className="w-full mt-6 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 cursor-pointer">
+            Close
+          </button>
+        </motion.div>
+      </motion.div>
+    )
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')

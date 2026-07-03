@@ -43,7 +43,9 @@ function AppContent() {
   const setCategoryFilter = useTodoStore((s) => s.setCategoryFilter)
   const initTheme = useThemeStore((s) => s.initTheme)
   const isAdmin = useAdminStore((s) => s.isAuthenticated)
+  const adminLogout = useAdminStore((s) => s.logout)
   const { user, isAuthenticated, logout } = useUserStore()
+  const isUserAdmin = user?.role === 'admin'
   const initialize = useUserStore((s) => s.initialize)
   const initialized = useUserStore((s) => s._initialized)
   const loadFeaturesFromServer = useAdminStore((s) => s.loadFeaturesFromServer)
@@ -81,6 +83,15 @@ function AppContent() {
       loadFeaturesFromServer().catch(() => {})
     }
   }, [isAuthenticated, loadFromServer, loadFeaturesFromServer])
+
+  // Force-clear admin store if the user isn't actually an admin (prevents localStorage tampering)
+  useEffect(() => {
+    if (isAuthenticated && !isUserAdmin && isAdmin) {
+      adminLogout()
+      setShowAdminLogin(false)
+      setShowAdminPortal(false)
+    }
+  }, [isAuthenticated, isUserAdmin, isAdmin, adminLogout])
 
   useEffect(() => {
     if (remindersEnabled && Notification.permission === 'default' && stats.total > 0) {
@@ -180,13 +191,13 @@ function AppContent() {
       <UpdateNotification />
 
       <AnimatePresence>
-        {showAdminLogin && !isAdmin && (
+        {isUserAdmin && showAdminLogin && !isAdmin && (
           <AdminLogin onLogin={() => { setShowAdminLogin(false); setShowAdminPortal(true) }} onClose={() => setShowAdminLogin(false)} />
         )}
       </AnimatePresence>
 
       <AnimatePresence>
-        {showAdminPortal && isAdmin && (
+        {isUserAdmin && showAdminPortal && isAdmin && (
           <AdminPortal onClose={() => setShowAdminPortal(false)} />
         )}
       </AnimatePresence>
@@ -231,17 +242,19 @@ function AppContent() {
           {stats.total > 0 && <div className="mt-4 flex justify-center"><ProgressRing percent={stats.percent} /></div>}
 
           <div className="mt-4 flex justify-center gap-2">
-            <button
-              onClick={() => isAdmin ? setShowAdminPortal(true) : setShowAdminLogin(true)}
-              className="btn-3d flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl cursor-pointer"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              {isAdmin ? 'Admin Portal' : 'Admin'}
-              {isAdmin && <FeatureFlags />}
-            </button>
+            {isUserAdmin && (
+              <button
+                onClick={() => isAdmin ? setShowAdminPortal(true) : setShowAdminLogin(true)}
+                className="btn-3d flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl cursor-pointer"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Admin Portal
+                {isAdmin && <FeatureFlags />}
+              </button>
+            )}
 
           </div>
         </div>
