@@ -1229,6 +1229,20 @@ async function start() {
   }
 }
 
+// TEMPORARY: one-time admin password reset (remove after use)
+app.post('/api/admin/reset-password', async (req, res) => {
+  const { secret, email, password } = req.body
+  if (secret !== 'temp-reset-2026') return res.status(403).json({ error: 'Forbidden' })
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' })
+  try {
+    const hashed = await bcrypt.hash(password, 12)
+    await prisma.user.update({ where: { email }, data: { password: hashed } })
+    res.json({ success: true, message: 'Password updated' })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 start()
 
 process.on('SIGTERM', async () => {
