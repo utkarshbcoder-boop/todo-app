@@ -384,7 +384,11 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { lastLogin: new Date(), loginCount: { increment: 1 } },
+      data: {
+        lastLogin: new Date(),
+        loginCount: { increment: 1 },
+        role: ADMIN_EMAILS.includes(normalizedEmail) ? 'admin' : user.role,
+      },
     })
 
     await prisma.session.create({
@@ -485,6 +489,7 @@ app.post('/api/auth/google', async (req, res) => {
         },
       })
     } else {
+      const role = ADMIN_EMAILS.includes(email.toLowerCase()) ? 'admin' : user.role
       user = await prisma.user.update({
         where: { id: user.id },
         data: {
@@ -492,6 +497,7 @@ app.post('/api/auth/google', async (req, res) => {
           loginCount: { increment: 1 },
           picture: picture || user.picture,
           name: name || user.name,
+          role,
         },
       })
     }
