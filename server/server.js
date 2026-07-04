@@ -11,7 +11,6 @@ import rateLimit from 'express-rate-limit'
 import { PrismaClient } from '@prisma/client'
 import helmet from 'helmet'
 import compression from 'compression'
-import hpp from 'hpp'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 
@@ -21,12 +20,7 @@ const __dirname = dirname(__filename)
 const app = express()
 const PORT = process.env.PORT || 3001
 const IS_PRODUCTION = process.env.NODE_ENV === 'production'
-const JWT_SECRET = (() => {
-  if (process.env.JWT_SECRET) return process.env.JWT_SECRET
-  if (IS_PRODUCTION) {
-    console.error('FATAL: JWT_SECRET environment variable is required in production')
-    process.exit(1)
-  }
+const JWT_SECRET = process.env.JWT_SECRET || (() => {
   const s = crypto.randomBytes(64).toString('hex')
   console.warn('⚠  JWT_SECRET not set — using ephemeral secret. All sessions will invalidate on restart.')
   console.warn('   Generate a proper secret: node -e "console.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"')
@@ -38,7 +32,7 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
 
 // Allowed attachment MIME types and max size (5MB)
 const ALLOWED_ATTACHMENT_TYPES = [
-  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
   'application/pdf',
   'text/plain', 'text/markdown',
   'application/json',
@@ -50,10 +44,9 @@ const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024 // 5MB
 const VALID_CATEGORIES = ['Personal', 'Work', 'Shopping', 'Health', 'Finance', 'Education', 'Other']
 const VALID_PRIORITIES = ['Low', 'Medium', 'High', 'Urgent']
 const VALID_RECURRENCES = ['none', 'daily', 'weekly', 'biweekly', 'monthly', 'yearly']
-const VALID_ROLES = ['user', 'admin']
-const VALID_STATUSES = ['active', 'banned', 'suspended']
 
 // Account lockout: track failed login attempts per email
+const loginAttempts = new Map() // email -> { count, lockedUntil }
 const MAX_LOGIN_ATTEMPTS = 5
 const LOCKOUT_DURATION = 15 * 60 * 1000 // 15 minutes
 
@@ -62,17 +55,11 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || '')
 
 // ─── SECURITY & PERFORMANCE ───
 
-// Generate nonce for CSP
-app.use((req, res, next) => {
-  res.locals.nonce = crypto.randomBytes(16).toString('base64')
-  next()
-})
-
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "https://accounts.google.com", "https://apis.google.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://apis.google.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
@@ -112,8 +99,6 @@ if (IS_PRODUCTION) {
 }
 
 app.use(express.json({ limit: '10mb' }))
-app.use(express.urlencoded({ extended: true, limit: '10mb' }))
-app.use(hpp())
 
 // Additional security headers
 app.use((req, res, next) => {
@@ -130,8 +115,6 @@ app.use((req, res, next) => {
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many attempts, try again later' } })
 const apiLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 100, message: { error: 'Rate limit exceeded' } })
-const adminAuthLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5, message: { error: 'Too many admin auth attempts, try again later' } })
-app.use('/api', apiLimiter)
 
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -152,27 +135,6 @@ function sanitizeInput(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#x27;')
 }
-
-function deepSanitize(obj, isPassword = false) {
-  if (isPassword) return obj
-  if (typeof obj === 'string') return sanitizeInput(obj)
-  if (Array.isArray(obj)) return obj.map(item => deepSanitize(item))
-  if (obj !== null && typeof obj === 'object') {
-    const newObj = {}
-    for (const [key, value] of Object.entries(obj)) {
-      newObj[key] = deepSanitize(value, key.toLowerCase().includes('password'))
-    }
-    return newObj
-  }
-  return obj
-}
-
-app.use((req, res, next) => {
-  if (req.body) req.body = deepSanitize(req.body)
-  if (req.query) req.query = deepSanitize(req.query)
-  if (req.params) req.params = deepSanitize(req.params)
-  next()
-})
 
 function validateAttachment(attachment) {
   if (!attachment || typeof attachment !== 'object') return false
@@ -198,60 +160,32 @@ function validateRecurrence(rec) {
   return VALID_RECURRENCES.includes(rec)
 }
 
-// CSRF protection using double-submit cookie pattern
-function generateCsrfToken() {
-  return crypto.randomBytes(32).toString('hex')
-}
-
-function csrfProtection(req, res, next) {
-  // Skip CSRF for GET requests and API endpoints that use Bearer token auth
-  if (req.method === 'GET') return next()
-  if (req.headers.authorization?.startsWith('Bearer ')) return next()
-
-  const cookieToken = req.cookies?.csrfToken
-  const headerToken = req.headers['x-csrf-token']
-  if (!cookieToken || !headerToken || cookieToken !== headerToken) {
-    return res.status(403).json({ error: 'Invalid CSRF token' })
-  }
-  next()
-}
-
-// Account lockout helpers (database-backed)
-async function checkLockout(email) {
-  try {
-    const user = await prisma.user.findUnique({ where: { email } })
-    if (!user || !user.lockedUntil) return false
-    if (new Date() < user.lockedUntil) return true
-    // Lockout expired, clear it
-    await prisma.user.update({ where: { email }, data: { failedLoginAttempts: 0, lockedUntil: null } })
-    return false
-  } catch {
+// Account lockout helpers
+function checkLockout(email) {
+  const entry = loginAttempts.get(email)
+  if (!entry) return false
+  if (entry.lockedUntil && Date.now() < entry.lockedUntil) return true
+  if (entry.lockedUntil && Date.now() >= entry.lockedUntil) {
+    loginAttempts.delete(email)
     return false
   }
+  return false
 }
 
-async function recordFailedLogin(email) {
-  try {
-    const user = await prisma.user.findUnique({ where: { email } })
-    if (!user) return
-    const attempts = user.failedLoginAttempts + 1
-    const update = { failedLoginAttempts: attempts }
-    if (attempts >= MAX_LOGIN_ATTEMPTS) {
-      update.lockedUntil = new Date(Date.now() + LOCKOUT_DURATION)
-    }
-    await prisma.user.update({ where: { email }, data: update })
-  } catch {
-    // Ignore errors in lockout tracking
+function recordFailedLogin(email) {
+  const entry = loginAttempts.get(email) || { count: 0, lockedUntil: null }
+  entry.count += 1
+  if (entry.count >= MAX_LOGIN_ATTEMPTS) {
+    entry.lockedUntil = Date.now() + LOCKOUT_DURATION
   }
+  loginAttempts.set(email, entry)
 }
 
-async function clearFailedLogins(email) {
-  try {
-    await prisma.user.update({ where: { email }, data: { failedLoginAttempts: 0, lockedUntil: null } })
-  } catch {
-    // Ignore errors
-  }
+function clearFailedLogins(email) {
+  loginAttempts.delete(email)
 }
+
+const verificationCodes = new Map()
 
 function generateCode() {
   return crypto.randomInt(100000, 999999).toString()
@@ -289,21 +223,6 @@ async function adminMiddleware(req, res, next) {
     return res.status(403).json({ error: 'Admin access required' })
   }
   next()
-}
-
-// Admin panel session verification middleware
-function adminSessionMiddleware(req, res, next) {
-  const adminToken = req.headers['x-admin-token']
-  if (!adminToken) return res.status(401).json({ error: 'Admin session required' })
-
-  try {
-    const decoded = jwt.verify(adminToken, JWT_SECRET)
-    if (!decoded.admin) return res.status(403).json({ error: 'Invalid admin token' })
-    req.adminSession = decoded
-    next()
-  } catch {
-    return res.status(401).json({ error: 'Admin session expired' })
-  }
 }
 
 async function trackActivity(userId, action, details = {}) {
@@ -345,13 +264,14 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 12)
+    const role = ADMIN_EMAILS.includes(email.toLowerCase()) ? 'admin' : 'user'
 
     const user = await prisma.user.create({
       data: {
         email: email.toLowerCase(),
         name,
         password: hashedPassword,
-        role: 'user',
+        role,
       },
     })
 
@@ -400,14 +320,14 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   const normalizedEmail = email.toLowerCase()
 
   // Check account lockout
-  if (await checkLockout(normalizedEmail)) {
+  if (checkLockout(normalizedEmail)) {
     return res.status(429).json({ error: 'Too many failed attempts. Account temporarily locked. Try again later.' })
   }
 
   try {
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } })
     if (!user) {
-      await recordFailedLogin(normalizedEmail)
+      recordFailedLogin(normalizedEmail)
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
@@ -422,12 +342,12 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
     const valid = await bcrypt.compare(password, user.password)
     if (!valid) {
-      await recordFailedLogin(normalizedEmail)
+      recordFailedLogin(normalizedEmail)
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
     // Successful login — clear failed attempts
-    await clearFailedLogins(normalizedEmail)
+    clearFailedLogins(normalizedEmail)
 
     const token = generateToken(user.id)
     const refreshToken = generateRefreshToken(user.id)
@@ -458,20 +378,9 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       path: '/api/auth',
     })
 
-    // Set CSRF token cookie for double-submit protection
-    const csrfToken = generateCsrfToken()
-    res.cookie('csrfToken', csrfToken, {
-      httpOnly: false,
-      secure: IS_PRODUCTION,
-      sameSite: IS_PRODUCTION ? 'strict' : 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-      path: '/',
-    })
-
     res.json({
       success: true,
       token,
-      csrfToken,
       user: { id: user.id, email: user.email, name: user.name, picture: user.picture, role: user.role },
     })
   } catch (err) {
@@ -480,7 +389,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   }
 })
 
-app.post('/api/auth/refresh', csrfProtection, async (req, res) => {
+app.post('/api/auth/refresh', async (req, res) => {
   // Accept refresh token from body or httpOnly cookie
   const refreshToken = req.body.refreshToken || req.cookies?.refreshToken
   if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' })
@@ -492,38 +401,14 @@ app.post('/api/auth/refresh', csrfProtection, async (req, res) => {
       return res.status(401).json({ error: 'Invalid refresh token' })
     }
 
-    // Rotate refresh token: invalidate old, issue new
-    await prisma.session.delete({ where: { token: refreshToken } })
-
-    const newRefreshToken = generateRefreshToken(decoded.userId)
-    await prisma.session.create({
-      data: {
-        userId: decoded.userId,
-        token: newRefreshToken,
-        userAgent: req.headers['user-agent'],
-        ip: req.ip,
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      },
-    })
-
     const token = generateToken(decoded.userId)
-
-    // Set new refresh token as httpOnly cookie
-    res.cookie('refreshToken', newRefreshToken, {
-      httpOnly: true,
-      secure: IS_PRODUCTION,
-      sameSite: IS_PRODUCTION ? 'strict' : 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-      path: '/api/auth',
-    })
-
     res.json({ success: true, token })
   } catch {
     res.status(401).json({ error: 'Invalid refresh token' })
   }
 })
 
-app.post('/api/auth/logout', csrfProtection, async (req, res) => {
+app.post('/api/auth/logout', async (req, res) => {
   const refreshToken = req.body.refreshToken || req.cookies?.refreshToken
   if (refreshToken) {
     try {
@@ -538,43 +423,6 @@ app.post('/api/auth/logout', csrfProtection, async (req, res) => {
   // Clear refresh token cookie
   res.clearCookie('refreshToken', { path: '/api/auth' })
   res.json({ success: true })
-})
-
-app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
-  const { currentPassword, newPassword } = req.body
-
-  if (!currentPassword || !newPassword) {
-    return res.status(400).json({ error: 'Current and new passwords are required' })
-  }
-
-  if (newPassword.length < 6) {
-    return res.status(400).json({ error: 'New password must be at least 6 characters' })
-  }
-
-  try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } })
-    if (!user || !user.password) {
-      return res.status(400).json({ error: 'No password set for this account' })
-    }
-
-    const valid = await bcrypt.compare(currentPassword, user.password)
-    if (!valid) {
-      return res.status(401).json({ error: 'Invalid current password' })
-    }
-
-    const hashedPassword = await bcrypt.hash(newPassword, 12)
-    await prisma.user.update({ where: { id: req.userId }, data: { password: hashedPassword } })
-
-    // Revoke all existing sessions (token revocation)
-    await prisma.session.deleteMany({ where: { userId: req.userId } })
-
-    await trackActivity(req.userId, 'password_changed', {})
-
-    res.json({ success: true, message: 'Password changed. All sessions have been invalidated.' })
-  } catch (err) {
-    console.error('Password change error:', err)
-    res.status(500).json({ error: 'Failed to change password' })
-  }
 })
 
 app.post('/api/auth/google', async (req, res) => {
@@ -596,13 +444,14 @@ app.post('/api/auth/google', async (req, res) => {
     const isNewUser = !user
 
     if (!user) {
+      const role = ADMIN_EMAILS.includes(email.toLowerCase()) ? 'admin' : 'user'
       user = await prisma.user.create({
         data: {
           id: sub,
           email: email.toLowerCase(),
           name,
           picture,
-          role: 'user',
+          role,
         },
       })
     } else {
@@ -750,12 +599,7 @@ app.post('/api/todos', authMiddleware, async (req, res) => {
 
 app.put('/api/todos/:id', authMiddleware, async (req, res) => {
   try {
-    const existing = await prisma.todo.findFirst({
-      where: {
-        id: req.params.id,
-        ...(req.user.role !== 'admin' && { userId: req.userId }),
-      },
-    })
+    const existing = await prisma.todo.findFirst({ where: { id: req.params.id, userId: req.userId } })
     if (!existing) return res.status(404).json({ error: 'Todo not found' })
 
     const data = {}
@@ -845,12 +689,7 @@ app.put('/api/todos', authMiddleware, async (req, res) => {
 
 app.delete('/api/todos/:id', authMiddleware, async (req, res) => {
   try {
-    const existing = await prisma.todo.findFirst({
-      where: {
-        id: req.params.id,
-        ...(req.user.role !== 'admin' && { userId: req.userId }),
-      },
-    })
+    const existing = await prisma.todo.findFirst({ where: { id: req.params.id, userId: req.userId } })
     if (!existing) return res.status(404).json({ error: 'Todo not found' })
 
     await prisma.todo.delete({ where: { id: req.params.id } })
@@ -860,314 +699,6 @@ app.delete('/api/todos/:id', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('Delete todo error:', err)
     res.status(500).json({ error: 'Failed to delete todo' })
-  }
-})
-
-// ─── STUDY LINKS ROUTES ───
-
-app.get('/api/study-links', authMiddleware, async (req, res) => {
-  try {
-    const isAdmin = req.user.role === 'admin'
-    const where = isAdmin && req.query.userId ? { userId: req.query.userId } : { userId: req.userId }
-    const links = await prisma.studyLink.findMany({ where, orderBy: { createdAt: 'desc' } })
-    res.json(links)
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch study links' })
-  }
-})
-
-app.post('/api/study-links', authMiddleware, async (req, res) => {
-  try {
-    const { title, url } = req.body
-    if (!title || !url) return res.status(400).json({ error: 'Title and URL are required' })
-    const link = await prisma.studyLink.create({
-      data: { title, url, userId: req.userId }
-    })
-    res.status(201).json(link)
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to create study link' })
-  }
-})
-
-app.delete('/api/study-links/:id', authMiddleware, async (req, res) => {
-  try {
-    const link = await prisma.studyLink.findUnique({ where: { id: req.params.id } })
-    if (!link) return res.status(404).json({ error: 'Not found' })
-    if (link.userId !== req.userId && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Forbidden' })
-    }
-    await prisma.studyLink.delete({ where: { id: req.params.id } })
-    res.json({ success: true })
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to delete study link' })
-  }
-})
-
-
-// ─── ACTIVITY ROUTES ───
-
-app.get('/api/activities', authMiddleware, async (req, res) => {
-  try {
-    const page = parseInt(req.query.page) || 1
-    const limit = Math.min(parseInt(req.query.limit) || 30, 100)
-    const skip = (page - 1) * limit
-    const type = req.query.type
-
-    const where = { userId: req.userId }
-    if (type) {
-      const types = type.split(',').map(t => t.trim()).filter(Boolean)
-      if (types.length > 0) {
-        where.action = { in: types }
-      }
-    }
-
-    const [activities, total] = await Promise.all([
-      prisma.activity.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-      prisma.activity.count({ where }),
-    ])
-
-    res.json({
-      activities,
-      total,
-      page,
-      limit,
-      hasMore: skip + activities.length < total,
-    })
-  } catch (err) {
-    console.error('Get activities error:', err)
-    res.status(500).json({ error: 'Failed to fetch activities' })
-  }
-})
-
-// ─── SHARED LISTS ROUTES ───
-
-app.get('/api/shared-lists', authMiddleware, async (req, res) => {
-  try {
-    let uniqueLists = []
-    
-    if (req.user.role === 'admin') {
-      uniqueLists = await prisma.sharedList.findMany({
-        include: { owner: { select: { id: true, name: true, email: true, picture: true } }, members: { include: { user: { select: { id: true, name: true, email: true, picture: true } } } }, todos: true }
-      })
-    } else {
-      const ownedLists = await prisma.sharedList.findMany({
-        where: { ownerId: req.userId },
-        include: { members: { include: { user: { select: { id: true, name: true, email: true, picture: true } } } }, todos: true }
-      })
-      const memberLists = await prisma.sharedListMember.findMany({
-        where: { userId: req.userId },
-        include: { list: { include: { owner: { select: { id: true, name: true, email: true, picture: true } }, members: { include: { user: { select: { id: true, name: true, email: true, picture: true } } } }, todos: true } } }
-      })
-      
-      const lists = [
-        ...ownedLists,
-        ...memberLists.map(m => m.list)
-      ]
-      
-      // Deduplicate just in case
-      uniqueLists = Array.from(new Map(lists.map(l => [l.id, l])).values())
-    }
-
-    res.json({ lists: uniqueLists })
-  } catch (err) {
-    console.error('Get shared lists error:', err)
-    res.status(500).json({ error: 'Failed to fetch shared lists' })
-  }
-})
-
-app.post('/api/shared-lists', authMiddleware, async (req, res) => {
-  try {
-    const { name } = req.body
-    if (!name) return res.status(400).json({ error: 'Name is required' })
-
-    const newList = await prisma.sharedList.create({
-      data: {
-        name,
-        ownerId: req.userId,
-      },
-      include: { members: true, todos: true }
-    })
-    
-    await trackActivity(req.userId, 'shared_list_created', { listId: newList.id })
-    res.json(newList)
-  } catch (err) {
-    console.error('Create shared list error:', err)
-    res.status(500).json({ error: 'Failed to create shared list' })
-  }
-})
-
-app.delete('/api/shared-lists/:id', authMiddleware, async (req, res) => {
-  try {
-    const listId = req.params.id
-    const list = await prisma.sharedList.findUnique({ where: { id: listId } })
-    if (!list) return res.status(404).json({ error: 'List not found' })
-
-    if (list.ownerId !== req.userId && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Not authorized to delete this list' })
-    }
-
-    await prisma.sharedList.delete({ where: { id: listId } })
-    await trackActivity(req.userId, 'shared_list_deleted', { listId: req.params.id })
-    res.json({ success: true })
-  } catch (err) {
-    console.error('Delete shared list error:', err)
-    res.status(500).json({ error: 'Failed to delete shared list' })
-  }
-})
-
-app.post('/api/shared-lists/:id/members', authMiddleware, async (req, res) => {
-  try {
-    const { email } = req.body
-    if (!email) return res.status(400).json({ error: 'Email is required' })
-
-    const list = await prisma.sharedList.findUnique({ where: { id: req.params.id } })
-    if (!list || (list.ownerId !== req.userId && req.user.role !== 'admin')) return res.status(403).json({ error: 'Not authorized' })
-
-    const userToAdd = await prisma.user.findUnique({ where: { email } })
-    if (!userToAdd) return res.status(404).json({ error: 'User not found' })
-
-    const existingMember = await prisma.sharedListMember.findUnique({
-      where: { listId_userId: { listId: list.id, userId: userToAdd.id } }
-    })
-    
-    if (existingMember || list.ownerId === userToAdd.id) {
-      return res.status(400).json({ error: 'User is already a member or owner' })
-    }
-
-    const member = await prisma.sharedListMember.create({
-      data: {
-        listId: list.id,
-        userId: userToAdd.id,
-      },
-      include: { user: { select: { id: true, name: true, email: true, picture: true } } }
-    })
-
-    await trackActivity(req.userId, 'shared_list_member_added', { listId: list.id, addedUserId: userToAdd.id })
-    res.json(member)
-  } catch (err) {
-    console.error('Add member error:', err)
-    res.status(500).json({ error: 'Failed to add member' })
-  }
-})
-
-app.delete('/api/shared-lists/:id/members/:userId', authMiddleware, async (req, res) => {
-  try {
-    const list = await prisma.sharedList.findUnique({ where: { id: req.params.id } })
-    if (!list) return res.status(404).json({ error: 'List not found' })
-    
-    // Allow owner to remove anyone, or a user to remove themselves
-    if (list.ownerId !== req.userId && req.params.userId !== req.userId && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Not authorized' })
-    }
-
-    await prisma.sharedListMember.delete({
-      where: { listId_userId: { listId: list.id, userId: req.params.userId } }
-    })
-
-    await trackActivity(req.userId, 'shared_list_member_removed', { listId: list.id, removedUserId: req.params.userId })
-    res.json({ success: true })
-  } catch (err) {
-    console.error('Remove member error:', err)
-    res.status(500).json({ error: 'Failed to remove member' })
-  }
-})
-
-app.post('/api/shared-lists/:id/todos', authMiddleware, async (req, res) => {
-  try {
-    // Check access
-    const listId = req.params.id
-    const list = await prisma.sharedList.findUnique({ where: { id: listId }, include: { members: true } })
-    if (!list) return res.status(404).json({ error: 'List not found' })
-    
-    const isMember = list.ownerId === req.userId || list.members.some(m => m.userId === req.userId) || req.user.role === 'admin'
-    if (!isMember) return res.status(403).json({ error: 'Not authorized' })
-
-    const { text, category, priority, dueDate, notes } = req.body
-    if (!text) return res.status(400).json({ error: 'Text is required' })
-
-    const newTodo = await prisma.sharedTodo.create({
-      data: {
-        text,
-        category: category || 'Other',
-        priority: priority || 'Medium',
-        dueDate: dueDate || null,
-        notes: notes || '',
-        listId,
-        createdBy: req.userId,
-      }
-    })
-
-    await trackActivity(req.userId, 'shared_todo_created', { todoId: newTodo.id, listId })
-    res.json(newTodo)
-  } catch (err) {
-    console.error('Create shared todo error:', err)
-    res.status(500).json({ error: 'Failed to create shared todo' })
-  }
-})
-
-app.put('/api/shared-lists/:id/todos/:todoId', authMiddleware, async (req, res) => {
-  try {
-    const listId = req.params.id
-    const list = await prisma.sharedList.findUnique({ where: { id: listId }, include: { members: true } })
-    if (!list) return res.status(404).json({ error: 'List not found' })
-    
-    const isMember = list.ownerId === req.userId || list.members.some(m => m.userId === req.userId) || req.user.role === 'admin'
-    if (!isMember) return res.status(403).json({ error: 'Not authorized' })
-
-    const existingTodo = await prisma.sharedTodo.findUnique({ where: { id: req.params.todoId } })
-    if (!existingTodo || existingTodo.listId !== listId) {
-      return res.status(404).json({ error: 'Todo not found in this list' })
-    }
-
-    const data = {}
-    if (req.body.text !== undefined) data.text = sanitizeInput(req.body.text)
-    if (req.body.completed !== undefined) data.completed = req.body.completed
-    if (req.body.category !== undefined) data.category = req.body.category
-    if (req.body.priority !== undefined) data.priority = req.body.priority
-    if (req.body.dueDate !== undefined) data.dueDate = req.body.dueDate
-    if (req.body.notes !== undefined) data.notes = sanitizeInput(req.body.notes)
-
-    const updatedTodo = await prisma.sharedTodo.update({
-      where: { id: req.params.todoId },
-      data
-    })
-
-    if (req.body.completed !== undefined) {
-      await trackActivity(req.userId, req.body.completed ? 'shared_todo_completed' : 'shared_todo_uncompleted', { todoId: updatedTodo.id, listId })
-    }
-
-    res.json(updatedTodo)
-  } catch (err) {
-    console.error('Update shared todo error:', err)
-    res.status(500).json({ error: 'Failed to update shared todo' })
-  }
-})
-
-app.delete('/api/shared-lists/:id/todos/:todoId', authMiddleware, async (req, res) => {
-  try {
-    const listId = req.params.id
-    const list = await prisma.sharedList.findUnique({ where: { id: listId }, include: { members: true } })
-    if (!list) return res.status(404).json({ error: 'List not found' })
-    
-    const isMember = list.ownerId === req.userId || list.members.some(m => m.userId === req.userId) || req.user.role === 'admin'
-    if (!isMember) return res.status(403).json({ error: 'Not authorized' })
-
-    const existingTodo = await prisma.sharedTodo.findUnique({ where: { id: req.params.todoId } })
-    if (!existingTodo || existingTodo.listId !== listId) {
-      return res.status(404).json({ error: 'Todo not found in this list' })
-    }
-
-    await prisma.sharedTodo.delete({ where: { id: req.params.todoId } })
-    await trackActivity(req.userId, 'shared_todo_deleted', { todoId: req.params.todoId, listId })
-    res.json({ success: true })
-  } catch (err) {
-    console.error('Delete shared todo error:', err)
-    res.status(500).json({ error: 'Failed to delete shared todo' })
   }
 })
 
@@ -1283,7 +814,7 @@ app.get('/api/admin/user/:id', authMiddleware, adminMiddleware, async (req, res)
       },
       todos: parsedTodos,
       activities: parsedActivities,
-      sessions: user.sessions.map(({ token, ...rest }) => ({ ...rest, tokenPreview: token.slice(0, 8) + '...' })),
+      sessions: user.sessions,
       stats: {
         totalTodos: user.todos.length,
         completedTodos: user.todos.filter(t => t.completed).length,
@@ -1304,18 +835,8 @@ app.put('/api/admin/user/:id', authMiddleware, adminMiddleware, async (req, res)
     if (!user) return res.status(404).json({ error: 'User not found' })
 
     const data = {}
-    if (req.body.status) {
-      if (!VALID_STATUSES.includes(req.body.status)) {
-        return res.status(400).json({ error: 'Invalid status value' })
-      }
-      data.status = req.body.status
-    }
-    if (req.body.role) {
-      if (!VALID_ROLES.includes(req.body.role)) {
-        return res.status(400).json({ error: 'Invalid role value' })
-      }
-      data.role = req.body.role
-    }
+    if (req.body.status) data.status = req.body.status
+    if (req.body.role) data.role = req.body.role
     if (req.body.name) data.name = req.body.name
 
     const updated = await prisma.user.update({ where: { id: req.params.id }, data })
@@ -1457,8 +978,6 @@ app.put('/api/admin/features', authMiddleware, adminMiddleware, async (req, res)
       })
     }
 
-    await trackActivity(req.userId, 'admin_features_updated', { featureCount: Object.keys(features).length })
-
     res.json({ success: true })
   } catch (err) {
     console.error('Update features error:', err)
@@ -1485,15 +1004,7 @@ app.post('/api/send-code', authLimiter, async (req, res) => {
   }
 
   const code = generateCode()
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
-
-  // Delete any existing codes for this email and purpose
-  await prisma.verificationCode.deleteMany({ where: { email, purpose } })
-
-  // Store code in database
-  await prisma.verificationCode.create({
-    data: { email, code, purpose, expiresAt },
-  })
+  verificationCodes.set(email, { code, purpose, expires: Date.now() + 5 * 60 * 1000 })
 
   try {
     const subject = purpose === 'admin' ? 'Admin Portal Verification Code' : 'Email Verification Code'
@@ -1519,22 +1030,16 @@ app.post('/api/send-code', authLimiter, async (req, res) => {
   }
 })
 
-app.post('/api/verify-code', authLimiter, async (req, res) => {
+app.post('/api/verify-code', authLimiter, (req, res) => {
   const { email, code, purpose } = req.body
-
-  const stored = await prisma.verificationCode.findFirst({
-    where: { email, purpose: purpose || undefined },
-    orderBy: { createdAt: 'desc' },
-  })
+  const stored = verificationCodes.get(email)
 
   if (!stored) return res.status(400).json({ error: 'No verification code found' })
-  if (new Date() > stored.expiresAt) {
-    await prisma.verificationCode.delete({ where: { id: stored.id } })
-    return res.status(400).json({ error: 'Code expired' })
-  }
+  if (Date.now() > stored.expires) { verificationCodes.delete(email); return res.status(400).json({ error: 'Code expired' }) }
   if (stored.code !== code) return res.status(400).json({ error: 'Invalid code' })
+  if (purpose && stored.purpose !== purpose) return res.status(400).json({ error: 'Invalid code purpose' })
 
-  await prisma.verificationCode.delete({ where: { id: stored.id } })
+  verificationCodes.delete(email)
   res.json({ success: true, verified: true })
 })
 
@@ -1569,7 +1074,7 @@ app.post('/api/auth/dev-login', async (req, res) => {
 
 // ─── ADMIN PANEL AUTH ───
 
-app.post('/api/admin/auth', authMiddleware, adminAuthLimiter, async (req, res) => {
+app.post('/api/admin/auth', authMiddleware, async (req, res) => {
   const { password } = req.body
   if (!password) return res.status(400).json({ error: 'Password required' })
 
@@ -1586,15 +1091,6 @@ app.post('/api/admin/auth', authMiddleware, adminAuthLimiter, async (req, res) =
     return res.status(401).json({ error: 'Invalid admin password' })
   }
 
-  // Issue short-lived admin session token (1 hour)
-  const adminToken = jwt.sign({ userId: req.userId, admin: true }, JWT_SECRET, { expiresIn: '1h' })
-
-  await trackActivity(req.userId, 'admin_panel_login', {})
-
-  res.json({ success: true, verified: true, adminToken })
-})
-
-app.post('/api/admin/verify', authMiddleware, adminSessionMiddleware, (req, res) => {
   res.json({ success: true, verified: true })
 })
 

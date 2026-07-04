@@ -5,7 +5,7 @@ import { useAdminStore } from '../store/adminStore'
 import { useUserStore } from '../store/userStore'
 
 export default function AdminPortal({ onClose }) {
-  const { features, toggleFeature, addFeature, removeFeature, resetFeatures, logout: adminLogout, adminToken } = useAdminStore()
+  const { features, toggleFeature, addFeature, removeFeature, resetFeatures, logout: adminLogout } = useAdminStore()
   const { fetchWithAuth, user } = useUserStore()
   const [activeTab, setActiveTab] = useState('overview')
   const [users, setUsers] = useState([])
@@ -71,8 +71,6 @@ export default function AdminPortal({ onClose }) {
   }, [fetchWithAuth])
 
   const updateUserStatus = useCallback(async (userId, status) => {
-    const action = status === 'banned' ? 'ban' : 'unban'
-    if (!confirm(`Are you sure you want to ${action} this user?`)) return
     const res = await fetchWithAuth(`/admin/user/${userId}`, {
       method: 'PUT', body: JSON.stringify({ status }),
     })
@@ -86,7 +84,6 @@ export default function AdminPortal({ onClose }) {
   }, [fetchWithAuth, fetchUsers, selectedUser, fetchUserDetails])
 
   const updateUserRole = useCallback(async (userId, role) => {
-    if (!confirm(`Are you sure you want to change this user's role to "${role}"?`)) return
     const res = await fetchWithAuth(`/admin/user/${userId}`, {
       method: 'PUT', body: JSON.stringify({ role }),
     })

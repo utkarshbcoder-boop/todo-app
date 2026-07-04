@@ -9,7 +9,6 @@ import { addDays } from 'date-fns/addDays'
 import { addMonths } from 'date-fns/addMonths'
 import { format } from 'date-fns/format'
 import { getAccessToken } from './userStore'
-import { useGamificationStore } from './gamificationStore'
 
 const PRIORITY_ORDER = { High: 0, Medium: 1, Low: 2 }
 const MAX_HISTORY = 50
@@ -79,7 +78,7 @@ function serializeTodoForServer(todo) {
   }
 }
 
-async function apiRequest(method, path, body = null, retries = 3) {
+async function apiRequest(method, path, body = null) {
   const token = getAccessToken()
   if (!token) return { ok: false, error: 'No auth token' }
 
@@ -89,39 +88,26 @@ async function apiRequest(method, path, body = null, retries = 3) {
   }
   if (body) opts.body = JSON.stringify(body)
 
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      let res = await fetch(`${API_URL}${path}`, opts)
+  try {
+    let res = await fetch(`${API_URL}${path}`, opts)
 
-      if (res.status === 401) {
-        const { useUserStore } = await import('./userStore.js')
-        const refreshed = await useUserStore.getState().refreshAccessToken()
-        if (refreshed) {
-          const newToken = getAccessToken()
-          opts.headers.Authorization = `Bearer ${newToken}`
-          res = await fetch(`${API_URL}${path}`, opts)
-        } else {
-          return { ok: false, status: 401, error: 'Session expired' }
-        }
+    if (res.status === 401) {
+      const { useUserStore } = await import('./userStore.js')
+      const refreshed = await useUserStore.getState().refreshAccessToken()
+      if (refreshed) {
+        const newToken = getAccessToken()
+        opts.headers.Authorization = `Bearer ${newToken}`
+        res = await fetch(`${API_URL}${path}`, opts)
+      } else {
+        return { ok: false, status: 401, error: 'Session expired' }
       }
-
-      if (res.ok || res.status < 500 || attempt === retries) {
-        const data = await res.json().catch(() => ({}))
-        return { ok: res.ok, status: res.status, data, error: res.ok ? null : (data.error || 'Request failed') }
-      }
-
-      // Exponential backoff: 500ms, 1500ms, 3500ms
-      const delay = Math.min(500 * Math.pow(2, attempt) + Math.random() * 500, 5000)
-      await new Promise(r => setTimeout(r, delay))
-    } catch (err) {
-      if (attempt === retries) {
-        return { ok: false, error: 'Network error - offline' }
-      }
-      const delay = Math.min(500 * Math.pow(2, attempt) + Math.random() * 500, 5000)
-      await new Promise(r => setTimeout(r, delay))
     }
+
+    const data = await res.json().catch(() => ({}))
+    return { ok: res.ok, status: res.status, data, error: res.ok ? null : (data.error || 'Request failed') }
+  } catch {
+    return { ok: false, error: 'Network error - offline' }
   }
-  return { ok: false, error: 'Max retries exceeded' }
 }
 
 const _syncQueue = []
@@ -170,14 +156,12 @@ export const useTodoStore = create(
       searchQuery: '',
       calendarDate: new Date().toISOString(),
       completions: [],
-      studyLinks: [],
-      pomodoro: { running: false, secondsLeft: 25 * 60, todoId: null, mode: 'work', strictMode: false },
+      pomodoro: { running: false, secondsLeft: 25 * 60, todoId: null, mode: 'work' },
       _serverLoaded: false,
 
       loadFromServer: async () => {
         const token = getAccessToken()
         if (!token) return
-        get().loadStudyLinks()
         const result = await apiRequest('GET', '/todos')
         if (!result.ok || !result.data) return
 
@@ -245,9 +229,6 @@ export const useTodoStore = create(
             newCompletions.push({ date: today, count: 1 })
           }
           set({ completions: newCompletions.slice(-90) })
-
-          // Award gamification XP
-          try { useGamificationStore.getState().onTaskCompleted(toggled) } catch { /* ignore */ }
         }
 
         if (!toggled.completed && toggled.recurrence !== 'none') {
@@ -512,51 +493,30 @@ export const useTodoStore = create(
         queueSync('full', { todos: newTodos })
       },
 
-      startPomodoro: (todoId) => set((s) => ({ pomodoro: { ...s.pomodoro, running: true, secondsLeft: 25 * 60, todoId, mode: 'work', expectedEndTime: Date.now() + 25 * 60 * 1000 } })),
-      pausePomodoro: () => set((s) => ({ pomodoro: { ...s.pomodoro, running: false, expectedEndTime: null } })),
-      resumePomodoro: () => set((s) => ({ pomodoro: { ...s.pomodoro, running: true, expectedEndTime: Date.now() + s.pomodoro.secondsLeft * 1000 } })),
-      resetPomodoro: () => set((s) => ({ pomodoro: { ...s.pomodoro, running: false, secondsLeft: 25 * 60, todoId: null, mode: 'work', expectedEndTime: null } })),
-      failPomodoro: () => set((s) => ({ pomodoro: { ...s.pomodoro, running: false, secondsLeft: 25 * 60, todoId: null, mode: 'work', expectedEndTime: null } })),
-      toggleStrictMode: () => set((s) => ({ pomodoro: { ...s.pomodoro, strictMode: !s.pomodoro.strictMode } })),
+      startPomodoro: (todoId) => set({ pomodoro: { running: true, secondsLeft: 25 * 60, todoId, mode: 'work' } }),
+      pausePomodoro: () => set((s) => ({ pomodoro: { ...s.pomodoro, running: false } })),
+      resumePomodoro: () => set((s) => ({ pomodoro: { ...s.pomodoro, running: true } })),
+      resetPomodoro: () => set({ pomodoro: { running: false, secondsLeft: 25 * 60, todoId: null, mode: 'work' } }),
       tickPomodoro: () => {
         const state = get()
         if (!state.pomodoro.running || state.pomodoro.secondsLeft <= 0) return
-        
-        const now = Date.now()
-        const endTime = state.pomodoro.expectedEndTime || (now + state.pomodoro.secondsLeft * 1000)
-        const newSeconds = Math.round((endTime - now) / 1000)
-
+        const newSeconds = state.pomodoro.secondsLeft - 1
         if (newSeconds <= 0) {
           const isWork = state.pomodoro.mode === 'work'
           set({
             pomodoro: {
-              ...state.pomodoro,
               running: false,
               secondsLeft: isWork ? 5 * 60 : 25 * 60,
               todoId: isWork ? state.pomodoro.todoId : null,
               mode: isWork ? 'break' : 'work',
-              expectedEndTime: null,
             },
           })
           if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
             new Notification('Pomodoro', { body: isWork ? 'Break time!' : 'Work time!', icon: '/favicon.svg' })
           }
         } else {
-          set({ pomodoro: { ...state.pomodoro, secondsLeft: newSeconds, expectedEndTime: endTime } })
+          set({ pomodoro: { ...state.pomodoro, secondsLeft: newSeconds } })
         }
-      },
-
-      loadStudyLinks: async () => {
-        const res = await apiRequest('GET', '/study-links')
-        if (res.ok && res.data) set({ studyLinks: res.data })
-      },
-      addStudyLink: async (title, url) => {
-        const res = await apiRequest('POST', '/study-links', { title, url })
-        if (res.ok && res.data) set((s) => ({ studyLinks: [res.data, ...s.studyLinks] }))
-      },
-      deleteStudyLink: async (id) => {
-        const res = await apiRequest('DELETE', `/study-links/${id}`)
-        if (res.ok) set((s) => ({ studyLinks: s.studyLinks.filter(l => l.id !== id) }))
       },
 
       importTodos: (newTodos) => {

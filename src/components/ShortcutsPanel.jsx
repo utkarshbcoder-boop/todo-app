@@ -3,9 +3,9 @@ import { motion } from 'framer-motion'
 const SHORTCUTS = [
   { keys: '/', desc: 'Focus search' },
   { keys: 'n', desc: 'New todo' },
-  { keys: 'q', desc: 'Quick add' },
   { keys: 'x', desc: 'Toggle select all' },
   { keys: 'd', desc: 'Dashboard' },
+  { keys: 'e', desc: 'Export JSON' },
   { keys: '1-6', desc: 'Filter by category' },
   { keys: 'Ctrl+Z', desc: 'Undo' },
   { keys: 'Ctrl+Y', desc: 'Redo' },

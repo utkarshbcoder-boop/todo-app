@@ -28,10 +28,6 @@ export const VIEW_TABS = [
   { key: 'recurring', label: 'Recurring', color: 'text-purple-500' },
   { key: 'trash', label: 'Trash', color: 'text-gray-500' },
   { key: 'dashboard', label: 'Stats' },
-  { key: 'kanban', label: 'Kanban', color: 'text-blue-500' },
-  { key: 'habits', label: 'Habits', color: 'text-amber-500' },
-  { key: 'activity', label: 'Activity', color: 'text-cyan-500' },
-  { key: 'shared', label: 'Shared', color: 'text-pink-500' },
 ]
 export const CATEGORY_FILTERS = ['All', 'Work', 'Personal', 'Health', 'Finance', 'Other']
 

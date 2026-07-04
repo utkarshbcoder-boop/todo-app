@@ -53,7 +53,7 @@ export default function AdminLogin({ onLogin, onClose }) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Authentication failed')
-      login(user?.email || 'admin', data.adminToken)
+      login(user?.email || 'admin')
       onLogin?.()
     } catch (err) {
       setError(err.message)

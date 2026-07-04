@@ -18,14 +18,6 @@ server/.env
 server/.env.local
 server/.env.*.local
 
-# Database
-*.db
-*.db-journal
-server/*.db
-server/*.db-journal
-server/prisma/*.db
-server/prisma/*.db-journal
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -36,6 +28,3 @@ server/prisma/*.db-journal
 *.njsproj
 *.sln
 *.sw?
-
-# Admin password file
-server/.admin-initial-password
