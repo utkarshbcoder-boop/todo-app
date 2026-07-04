@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTodoStore } from '../store/todoStore'
 import { categoryIcons, priorityColors } from '../constants'
+import { toast } from 'sonner'
 
 const TIMER_PRESETS = [
   { label: '25 min', seconds: 25 * 60 },
@@ -91,31 +92,46 @@ function formatTime(seconds) {
 export default function FocusMode({ todoId, onClose }) {
   const todo = useTodoStore((s) => s.todos.find(t => t.id === todoId))
   const toggleTodo = useTodoStore((s) => s.toggleTodo)
+  const pomodoro = useTodoStore((s) => s.pomodoro)
+  const toggleStrictMode = useTodoStore((s) => s.toggleStrictMode)
+  const studyLinks = useTodoStore((s) => s.studyLinks)
+  const addStudyLink = useTodoStore((s) => s.addStudyLink)
+  const deleteStudyLink = useTodoStore((s) => s.deleteStudyLink)
+
   const [timerPreset, setTimerPreset] = useState(0)
   const [secondsLeft, setSecondsLeft] = useState(TIMER_PRESETS[0].seconds)
   const [running, setRunning] = useState(false)
   const [ambientSound, setAmbientSound] = useState('none')
+  const [showLinks, setShowLinks] = useState(false)
+  const [newLinkUrl, setNewLinkUrl] = useState('')
+  const [newLinkTitle, setNewLinkTitle] = useState('')
   const audioRef = useRef(null)
   const intervalRef = useRef(null)
 
   // Timer logic
+  const expectedEndTimeRef = useRef(null)
+
   useEffect(() => {
     if (running && secondsLeft > 0) {
+      expectedEndTimeRef.current = Date.now() + secondsLeft * 1000
       intervalRef.current = setInterval(() => {
-        setSecondsLeft(s => {
-          if (s <= 1) {
-            setRunning(false)
-            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-              new Notification('Focus Session Complete! 🎯', { body: `Great work on: ${todo?.text}`, icon: '/favicon.svg' })
-            }
-            return 0
+        const remaining = Math.round((expectedEndTimeRef.current - Date.now()) / 1000)
+        if (remaining <= 0) {
+          setSecondsLeft(0)
+          setRunning(false)
+          expectedEndTimeRef.current = null
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            new Notification('Focus Session Complete! 🎯', { body: `Great work on: ${todo?.text}`, icon: '/favicon.svg' })
           }
-          return s - 1
-        })
+        } else {
+          setSecondsLeft(remaining)
+        }
       }, 1000)
       return () => clearInterval(intervalRef.current)
+    } else {
+      expectedEndTimeRef.current = null
     }
-  }, [running, secondsLeft, todo?.text])
+  }, [running])
 
   // Ambient sound
   useEffect(() => {
@@ -146,6 +162,31 @@ export default function FocusMode({ todoId, onClose }) {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && running && pomodoro.strictMode) {
+        if (window.__exemptVisibilityUntil__ && Date.now() < window.__exemptVisibilityUntil__) return
+        setRunning(false)
+        setSecondsLeft(TIMER_PRESETS[timerPreset].seconds)
+        toast.error('Focus Broken! Pomodoro Failed.')
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [running, pomodoro.strictMode, timerPreset])
+
+  const handleLinkClick = (url) => {
+    window.__exemptVisibilityUntil__ = Date.now() + 30 * 60 * 1000
+    window.open(url, '_blank')
+  }
+
+  const handleAddLink = () => {
+    if (!newLinkTitle || !newLinkUrl) return
+    addStudyLink(newLinkTitle, newLinkUrl)
+    setNewLinkTitle('')
+    setNewLinkUrl('')
+  }
 
   const selectPreset = (idx) => {
     setTimerPreset(idx)
@@ -194,11 +235,11 @@ export default function FocusMode({ todoId, onClose }) {
         initial={{ scale: 0.9, y: 20 }}
         animate={{ scale: 1, y: 0 }}
         transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-        className="relative z-10 w-full max-w-lg text-center space-y-8"
+        className="relative z-10 w-full max-w-lg text-center space-y-6 max-h-[90vh] overflow-y-auto custom-scrollbar px-2 py-6 md:px-6"
       >
         {/* Close button */}
         <button onClick={onClose}
-          className="absolute -top-4 right-0 p-2 text-gray-400 hover:text-white transition-colors cursor-pointer"
+          className="absolute top-0 right-2 p-2 text-gray-400 hover:text-white transition-colors cursor-pointer"
           title="Close (Esc)">
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -310,6 +351,46 @@ export default function FocusMode({ todoId, onClose }) {
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between px-4 py-2 bg-white/5 rounded-xl border border-white/10">
+            <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-300">
+              <input type="checkbox" checked={pomodoro.strictMode} onChange={toggleStrictMode} className="rounded text-indigo-500 focus:ring-indigo-500 bg-white/10 border-transparent cursor-pointer" />
+              Strict Mode
+            </label>
+            <button onClick={() => setShowLinks(!showLinks)} className="text-sm font-medium text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer">
+              Study Links
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {showLinks && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden bg-white/5 rounded-xl border border-white/10 p-4 text-left">
+                <div className="flex flex-col h-48">
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-sm font-semibold text-white">Study Links</h3>
+                  </div>
+                  <div className="flex flex-col gap-2 mb-2">
+                    <input type="text" placeholder="Title (e.g. Wiki)" value={newLinkTitle} onChange={(e) => setNewLinkTitle(e.target.value)} className="w-full text-xs px-2 py-1.5 bg-white/10 text-white placeholder-gray-400 rounded outline-none border border-white/10 focus:border-indigo-500" />
+                    <div className="flex gap-1">
+                      <input type="url" placeholder="URL (https://...)" value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} className="flex-1 text-xs px-2 py-1.5 bg-white/10 text-white placeholder-gray-400 rounded outline-none border border-white/10 focus:border-indigo-500" />
+                      <button onClick={handleAddLink} className="bg-indigo-500 hover:bg-indigo-600 text-white px-3 rounded text-sm transition-colors cursor-pointer">+</button>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                    {studyLinks.map(link => (
+                      <div key={link.id} className="flex justify-between items-center bg-white/5 p-1.5 rounded">
+                        <button onClick={() => handleLinkClick(link.url)} className="text-xs text-left text-gray-300 truncate flex-1 hover:text-indigo-400 cursor-pointer" title={link.url}>{link.title}</button>
+                        <button onClick={() => deleteStudyLink(link.id)} className="text-red-400 hover:text-red-300 px-1 text-xs cursor-pointer">×</button>
+                      </div>
+                    ))}
+                    {studyLinks.length === 0 && <p className="text-xs text-gray-400 text-center mt-4">No study links added.</p>}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Complete task button */}

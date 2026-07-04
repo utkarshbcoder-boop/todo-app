@@ -39,22 +39,25 @@ export default function BulkActions() {
             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
             role="toolbar"
             aria-label="Bulk actions"
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-2xl shadow-2xl shadow-gray-300/50 dark:shadow-gray-900/80 border border-gray-200 dark:border-gray-700 px-6 py-3 flex items-center gap-4"
+            className="fixed bottom-4 sm:bottom-6 left-2 right-2 sm:left-1/2 sm:-translate-x-1/2 sm:w-auto sm:max-w-[calc(100%-1rem)] z-50 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-2xl shadow-2xl shadow-gray-300/50 dark:shadow-gray-900/80 border border-gray-200 dark:border-gray-700 px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between sm:justify-center gap-2 sm:gap-4"
+            style={{ paddingBottom: 'max(0.625rem, env(safe-area-inset-bottom))' }}
           >
-            <span className="text-sm font-medium text-gray-600 dark:text-gray-300">{selectedIds.length} selected</span>
-            <div className="h-6 w-px bg-gray-200 dark:bg-gray-600" />
+            <span className="text-xs sm:text-sm font-medium text-gray-600 dark:text-gray-300">{selectedIds.length} selected</span>
+            <div className="h-5 sm:h-6 w-px bg-gray-200 dark:bg-gray-600 hidden sm:block" />
             <button onClick={bulkComplete}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-all cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-all cursor-pointer"
               aria-label="Complete selected todos">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-              Complete
+              <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+              <span className="hidden sm:inline">Complete</span>
+              <span className="sm:hidden">Done</span>
             </button>
             <div className="relative" ref={categoryRef}>
               <button onClick={() => setShowCategoryMenu(!showCategoryMenu)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-all cursor-pointer"
+                className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-all cursor-pointer"
                 aria-label="Categorize selected todos" aria-haspopup="true" aria-expanded={showCategoryMenu}>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
-                Categorize
+                <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
+                <span className="hidden sm:inline">Categorize</span>
+                <span className="sm:hidden">Cat</span>
               </button>
               <AnimatePresence>
                 {showCategoryMenu && (
@@ -69,16 +72,17 @@ export default function BulkActions() {
               </AnimatePresence>
             </div>
             <button onClick={() => setShowDeleteConfirm(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all cursor-pointer"
               aria-label="Delete selected todos">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-              Delete
+              <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              <span className="hidden sm:inline">Delete</span>
+              <span className="sm:hidden">Del</span>
             </button>
-            <div className="h-6 w-px bg-gray-200 dark:border-gray-600" />
+            <div className="h-5 sm:h-6 w-px bg-gray-200 dark:border-gray-600 hidden sm:block" />
             <button onClick={clearSelection}
               className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all cursor-pointer"
               aria-label="Clear selection" title="Clear selection">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
           </motion.div>
 

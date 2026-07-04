@@ -23,6 +23,10 @@ const defaultFeatures = {
   reviews: { enabled: true, name: 'Reviews', description: 'Weekly and monthly review prompts' },
   tagFilter: { enabled: true, name: 'Tag Filter', description: 'Filter todos by tags' },
   recurringView: { enabled: true, name: 'Recurring View', description: 'View all recurring tasks' },
+  shared: { enabled: true, name: 'Shared Lists', description: 'Collaborate on lists with other users' },
+  kanban: { enabled: true, name: 'Kanban Board', description: 'View tasks in a Kanban board' },
+  habits: { enabled: true, name: 'Habit Tracker', description: 'Track daily habits' },
+  activity: { enabled: true, name: 'Activity Timeline', description: 'View history of changes' },
 }
 
 async function fetchServerFeatures() {
@@ -36,13 +40,17 @@ async function fetchServerFeatures() {
   }
 }
 
-async function persistFeatures(features) {
+async function persistFeatures(features, adminToken) {
   const token = getAccessToken()
   if (!token) return
   try {
     await fetch(`${API_URL}/admin/features`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        'X-Admin-Token': adminToken || '',
+      },
       body: JSON.stringify({ features }),
     })
   } catch {
@@ -55,6 +63,7 @@ export const useAdminStore = create(
     (set, get) => ({
       isAuthenticated: false,
       adminEmail: null,
+      adminToken: null,
       features: defaultFeatures,
       _serverLoaded: false,
 
@@ -67,12 +76,14 @@ export const useAdminStore = create(
         }
       },
 
-      login: (email) => {
-        set({ isAuthenticated: true, adminEmail: email })
+      login: (email, adminToken) => {
+        set({ isAuthenticated: true, adminEmail: email, adminToken })
         return true
       },
 
-      logout: () => set({ isAuthenticated: false, adminEmail: null }),
+      logout: () => set({ isAuthenticated: false, adminEmail: null, adminToken: null }),
+
+      getAdminToken: () => get().adminToken,
 
       toggleFeature: (featureKey) => {
         const state = get()
@@ -83,7 +94,7 @@ export const useAdminStore = create(
             [featureKey]: { ...feature, enabled: !feature.enabled },
           }
           set({ features: newFeatures })
-          persistFeatures(newFeatures)
+          persistFeatures(newFeatures, state.adminToken)
         }
       },
 
@@ -96,7 +107,7 @@ export const useAdminStore = create(
             [featureKey]: { ...feature, ...updates },
           }
           set({ features: newFeatures })
-          persistFeatures(newFeatures)
+          persistFeatures(newFeatures, state.adminToken)
         }
       },
 
@@ -108,7 +119,7 @@ export const useAdminStore = create(
             [key]: { enabled: true, name, description },
           }
           set({ features: newFeatures })
-          persistFeatures(newFeatures)
+          persistFeatures(newFeatures, state.adminToken)
         }
       },
 
@@ -117,7 +128,7 @@ export const useAdminStore = create(
         const features = { ...state.features }
         delete features[key]
         set({ features })
-        persistFeatures(features)
+        persistFeatures(features, state.adminToken)
       },
 
       isFeatureEnabled: (featureKey) => {
@@ -126,8 +137,9 @@ export const useAdminStore = create(
       },
 
       resetFeatures: () => {
+        const state = get()
         set({ features: defaultFeatures })
-        persistFeatures(defaultFeatures)
+        persistFeatures(defaultFeatures, state.adminToken)
       },
     }),
     {

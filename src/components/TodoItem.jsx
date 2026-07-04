@@ -9,6 +9,7 @@ import confetti from 'canvas-confetti'
 import { useTodoStore } from '../store/todoStore'
 import { categoryIcons, priorityColors } from '../constants'
 import { useI18n } from '../i18n/useI18n'
+import { sanitizeHtml } from '../utils/sanitize'
 import { useFeatureFlag } from '../hooks/useFeatureFlag'
 import TodoForm from './TodoForm'
 
@@ -207,7 +208,7 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-2 space-y-2">
               {notesEnabled && todo.notes && (
                 <div className="text-sm text-gray-500 dark:text-gray-400 pl-1 border-l-2 border-gray-200 dark:border-gray-600 ml-1 prose prose-sm dark:prose-invert max-w-none break-words">
-                  <Markdown>{todo.notes}</Markdown>
+                  <Markdown>{sanitizeHtml(todo.notes)}</Markdown>
                 </div>
               )}
               {subtasksEnabled && totalSubtasks > 0 && (

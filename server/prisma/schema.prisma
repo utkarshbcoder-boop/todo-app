@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -13,16 +13,21 @@ model User {
   name      String
   password  String?
   picture   String?
-  role      String   @default("user")
-  status    String   @default("active")
+  role      String   @default("user") // Valid values: "user", "admin"
+  status    String   @default("active") // Valid values: "active", "banned", "suspended"
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   lastLogin DateTime?
   loginCount Int      @default(0)
+  failedLoginAttempts Int @default(0)
+  lockedUntil         DateTime?
 
   todos      Todo[]
   activities Activity[]
   sessions   Session[]
+  ownedLists SharedList[]       @relation("OwnedLists")
+  listMemberships SharedListMember[]
+  studyLinks StudyLink[]
 }
 
 model Todo {
@@ -77,4 +82,71 @@ model FeatureFlag {
   enabled     Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model SharedList {
+  id        String   @id @default(uuid())
+  name      String
+  ownerId   String
+  owner     User     @relation("OwnedLists", fields: [ownerId], references: [id], onDelete: Cascade)
+  members   SharedListMember[]
+  todos     SharedTodo[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SharedListMember {
+  id       String     @id @default(uuid())
+  listId   String
+  list     SharedList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     String     @default("editor")
+  joinedAt DateTime   @default(now())
+
+  @@unique([listId, userId])
+}
+
+model SharedTodo {
+  id         String     @id @default(uuid())
+  text       String
+  completed  Boolean    @default(false)
+  category   String     @default("Other")
+  priority   String     @default("Medium")
+  dueDate    String?
+  notes      String     @default("")
+  tags       String     @default("[]")
+  subtasks   String     @default("[]")
+  attachments String    @default("[]")
+  blockedBy  String     @default("[]")
+  recurrence String     @default("none")
+  reminderAt String     @default("none")
+  sortOrder  Int        @default(0)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  listId     String
+  list       SharedList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  createdBy  String
+}
+
+model StudyLink {
+  id        String   @id @default(uuid())
+  title     String
+  url       String
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationCode {
+  id        String   @id @default(uuid())
+  email     String
+  code      String
+  purpose   String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email, purpose])
 }
