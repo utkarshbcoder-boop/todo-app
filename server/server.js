@@ -1135,27 +1135,39 @@ if (IS_PRODUCTION) {
 
 async function seedDefaultAdmin() {
   for (const email of ADMIN_EMAILS) {
-    const existing = await prisma.user.findUnique({ where: { email: email.trim() } })
+    const normalizedEmail = email.trim().toLowerCase()
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } })
+
     if (!existing) {
-      // Generate a random password for admin if no default password is set
+      // Create new admin with configured or generated password
       const defaultPassword = process.env.ADMIN_DEFAULT_PASSWORD || crypto.randomBytes(16).toString('hex')
       const hashed = await bcrypt.hash(defaultPassword, 12)
       await prisma.user.create({
         data: {
-          email: email.trim(),
+          email: normalizedEmail,
           name: 'Admin',
           password: hashed,
           role: 'admin',
         },
       })
-      console.log(`Default admin created: ${email.trim()}`)
-      if (!process.env.ADMIN_DEFAULT_PASSWORD) {
-        // Write to a one-time file instead of console (avoids log aggregation leaks)
+      console.log(`✅ Admin user created: ${normalizedEmail}`)
+
+      if (process.env.ADMIN_DEFAULT_PASSWORD) {
+        console.log(`   Password set from ADMIN_DEFAULT_PASSWORD env var`)
+      } else if (IS_PRODUCTION) {
+        console.log(`   ⚠  GENERATED PASSWORD: ${defaultPassword}`)
+        console.log(`   Set ADMIN_DEFAULT_PASSWORD env var to control the password.`)
+      } else {
         const fs = await import('fs')
         const pwFile = join(__dirname, '.admin-initial-password')
-        fs.writeFileSync(pwFile, `Admin: ${email.trim()}\nPassword: ${defaultPassword}\n\nDelete this file after reading!\n`)
-        console.log(`⚠  Generated admin password written to: ${pwFile} — READ AND DELETE IT!`)
+        fs.writeFileSync(pwFile, `Admin: ${normalizedEmail}\nPassword: ${defaultPassword}\n\nDelete this file after reading!\n`)
+        console.log(`   Generated password written to: ${pwFile}`)
       }
+    } else if (!existing.password && process.env.ADMIN_DEFAULT_PASSWORD) {
+      // User exists (e.g. Google OAuth) but has no password — set one so email login works
+      const hashed = await bcrypt.hash(process.env.ADMIN_DEFAULT_PASSWORD, 12)
+      await prisma.user.update({ where: { id: existing.id }, data: { password: hashed } })
+      console.log(`✅ Password set for existing admin: ${normalizedEmail}`)
     }
   }
 }
