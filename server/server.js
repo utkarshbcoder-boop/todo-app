@@ -28,7 +28,7 @@ const JWT_SECRET = process.env.JWT_SECRET || (() => {
 })()
 const ADMIN_PANEL_PASSWORD_HASH = process.env.ADMIN_PANEL_PASSWORD_HASH
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').filter(Boolean)
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
+const FRONTEND_URL = process.env.FRONTEND_URL || (IS_PRODUCTION ? 'https://todo-app.vercel.app' : 'http://localhost:5173')
 
 // Allowed attachment MIME types and max size (5MB)
 const ALLOWED_ATTACHMENT_TYPES = [
@@ -299,7 +299,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: IS_PRODUCTION,
-      sameSite: IS_PRODUCTION ? 'strict' : 'lax',
+      sameSite: 'lax',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       path: '/api/auth',
     })
@@ -378,7 +378,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: IS_PRODUCTION,
-      sameSite: IS_PRODUCTION ? 'strict' : 'lax',
+      sameSite: 'lax',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       path: '/api/auth',
     })
@@ -494,7 +494,7 @@ app.post('/api/auth/google', async (req, res) => {
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: IS_PRODUCTION,
-      sameSite: IS_PRODUCTION ? 'strict' : 'lax',
+      sameSite: 'lax',
       maxAge: 30 * 24 * 60 * 60 * 1000,
       path: '/api/auth',
     })

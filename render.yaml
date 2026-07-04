@@ -10,3 +10,11 @@ services:
         value: production
       - key: DATABASE_URL
         value: file:./prod.db
+      - key: JWT_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        value: https://todo-app.vercel.app
+      - key: ADMIN_EMAILS
+        sync: false
+      - key: ADMIN_PANEL_PASSWORD_HASH
+        sync: false
