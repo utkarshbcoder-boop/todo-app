@@ -103,8 +103,10 @@ async function apiRequest(method, path, body = null) {
       }
     }
 
-    const data = await res.json().catch(() => ({}))
-    return { ok: res.ok, status: res.status, data, error: res.ok ? null : (data.error || 'Request failed') }
+    const text = await res.text().catch(() => '')
+    let data = {}
+    try { data = text ? JSON.parse(text) : {} } catch {}
+    return { ok: res.ok, status: res.status, data, error: res.ok ? null : (data.error || `Server error (HTTP ${res.status})`) }
   } catch {
     return { ok: false, error: 'Network error - offline' }
   }

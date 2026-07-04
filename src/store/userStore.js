@@ -9,7 +9,7 @@ let _refreshPromise = null
 async function safeJson(res) {
   const text = await res.text()
   if (!text) return {}
-  try { return JSON.parse(text) } catch { return {} }
+  try { return JSON.parse(text) } catch { return { error: `Server error (HTTP ${res.status}): Server might be offline or unreachable.` } }
 }
 
 export const useUserStore = create(
