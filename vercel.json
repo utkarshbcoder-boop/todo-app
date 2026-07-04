@@ -1,8 +1,11 @@
 {
+  "buildCommand": "cd server && npx prisma generate && cd .. && npx vite build",
+  "outputDirectory": "dist",
+  "framework": "vite",
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://todo-app-keid.onrender.com/api/:path*"
+      "destination": "/api"
     }
   ]
 }

@@ -32,7 +32,7 @@ const FRONTEND_URL = process.env.FRONTEND_URL || (IS_PRODUCTION ? 'https://todo-
 
 // Allowed attachment MIME types and max size (5MB)
 const ALLOWED_ATTACHMENT_TYPES = [
-  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
   'application/pdf',
   'text/plain', 'text/markdown',
   'application/json',
@@ -45,12 +45,12 @@ const VALID_CATEGORIES = ['Personal', 'Work', 'Shopping', 'Health', 'Finance', '
 const VALID_PRIORITIES = ['Low', 'Medium', 'High', 'Urgent']
 const VALID_RECURRENCES = ['none', 'daily', 'weekly', 'biweekly', 'monthly', 'yearly']
 
-// Account lockout: track failed login attempts per email
-const loginAttempts = new Map() // email -> { count, lockedUntil }
+// Account lockout: uses database (works in serverless)
 const MAX_LOGIN_ATTEMPTS = 5
 const LOCKOUT_DURATION = 15 * 60 * 1000 // 15 minutes
 
-const prisma = new PrismaClient()
+const prisma = globalThis.__prisma ?? new PrismaClient()
+if (process.env.VERCEL) globalThis.__prisma = prisma
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || '')
 
 // ─── SECURITY & PERFORMANCE ───
@@ -59,7 +59,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://apis.google.com"],
+      scriptSrc: ["'self'", "https://accounts.google.com", "https://apis.google.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
@@ -121,6 +121,26 @@ app.use((req, res, next) => {
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many attempts, try again later' } })
 const apiLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 100, message: { error: 'Rate limit exceeded' } })
 
+// Vercel serverless: initialize DB + seed on first request
+let _initialized = false
+if (process.env.VERCEL) {
+  app.use(async (req, res, next) => {
+    try {
+      if (!_initialized) {
+        await prisma.$connect()
+        await seedDefaultAdmin()
+        await seedDefaultFeatures()
+        await cleanupExpiredSessions()
+        _initialized = true
+      }
+      next()
+    } catch (err) {
+      console.error('Init error:', err)
+      res.status(500).json({ error: 'Server initialization failed' })
+    }
+  })
+}
+
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -166,31 +186,35 @@ function validateRecurrence(rec) {
 }
 
 // Account lockout helpers
-function checkLockout(email) {
-  const entry = loginAttempts.get(email)
+async function checkLockout(email) {
+  const entry = await prisma.loginAttempt.findUnique({ where: { email } })
   if (!entry) return false
-  if (entry.lockedUntil && Date.now() < entry.lockedUntil) return true
-  if (entry.lockedUntil && Date.now() >= entry.lockedUntil) {
-    loginAttempts.delete(email)
+  if (entry.lockedUntil && new Date() < entry.lockedUntil) return true
+  if (entry.lockedUntil && new Date() >= entry.lockedUntil) {
+    await prisma.loginAttempt.delete({ where: { email } })
     return false
   }
   return false
 }
 
-function recordFailedLogin(email) {
-  const entry = loginAttempts.get(email) || { count: 0, lockedUntil: null }
-  entry.count += 1
-  if (entry.count >= MAX_LOGIN_ATTEMPTS) {
-    entry.lockedUntil = Date.now() + LOCKOUT_DURATION
+async function recordFailedLogin(email) {
+  const entry = await prisma.loginAttempt.findUnique({ where: { email } })
+  if (!entry) {
+    const count = 1
+    const lockedUntil = count >= MAX_LOGIN_ATTEMPTS ? new Date(Date.now() + LOCKOUT_DURATION) : null
+    await prisma.loginAttempt.create({ data: { email, count, lockedUntil } })
+  } else {
+    const count = entry.count + 1
+    const lockedUntil = count >= MAX_LOGIN_ATTEMPTS ? new Date(Date.now() + LOCKOUT_DURATION) : entry.lockedUntil
+    await prisma.loginAttempt.update({ where: { email }, data: { count, lockedUntil } })
   }
-  loginAttempts.set(email, entry)
 }
 
-function clearFailedLogins(email) {
-  loginAttempts.delete(email)
+async function clearFailedLogins(email) {
+  await prisma.loginAttempt.deleteMany({ where: { email } })
 }
 
-const verificationCodes = new Map()
+// verificationCodes now stored in database (VerificationCode model)
 
 function generateCode() {
   return crypto.randomInt(100000, 999999).toString()
@@ -265,7 +289,8 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
   try {
     const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } })
     if (existing) {
-      return res.status(409).json({ error: 'Email already registered' })
+      // Return success to prevent email enumeration
+      return res.json({ success: true, message: 'If this email is not already registered, your account has been created.' })
     }
 
     const hashedPassword = await bcrypt.hash(password, 12)
@@ -325,7 +350,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   const normalizedEmail = email.toLowerCase()
 
   // Check account lockout
-  if (checkLockout(normalizedEmail)) {
+  if (await checkLockout(normalizedEmail)) {
     return res.status(429).json({ error: 'Too many failed attempts. Account temporarily locked. Try again later.' })
   }
 
@@ -395,8 +420,8 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 })
 
 app.post('/api/auth/refresh', async (req, res) => {
-  // Accept refresh token from body or httpOnly cookie
-  const refreshToken = req.body.refreshToken || req.cookies?.refreshToken
+  // Only accept refresh token from httpOnly cookie (not request body)
+  const refreshToken = req.cookies?.refreshToken
   if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' })
 
   try {
@@ -414,7 +439,7 @@ app.post('/api/auth/refresh', async (req, res) => {
 })
 
 app.post('/api/auth/logout', async (req, res) => {
-  const refreshToken = req.body.refreshToken || req.cookies?.refreshToken
+  const refreshToken = req.cookies?.refreshToken
   if (refreshToken) {
     try {
       const decoded = jwt.verify(refreshToken, JWT_SECRET)
@@ -1000,16 +1025,21 @@ app.post('/api/send-code', authLimiter, async (req, res) => {
     return res.status(403).json({ error: 'Unauthorized email' })
   }
 
-  // For registration, check if email is already registered
+  // For registration, silently skip if email already registered (prevents enumeration)
   if (purpose === 'register') {
     const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } })
     if (existing) {
-      return res.status(409).json({ error: 'Email already registered' })
+      return res.json({ success: true, message: 'If this email is not already registered, a verification code has been sent.' })
     }
   }
 
   const code = generateCode()
-  verificationCodes.set(email, { code, purpose, expires: Date.now() + 5 * 60 * 1000 })
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
+  await prisma.verificationCode.upsert({
+    where: { email },
+    update: { code, purpose, expiresAt },
+    create: { email, code, purpose, expiresAt },
+  })
 
   try {
     const subject = purpose === 'admin' ? 'Admin Portal Verification Code' : 'Email Verification Code'
@@ -1035,51 +1065,22 @@ app.post('/api/send-code', authLimiter, async (req, res) => {
   }
 })
 
-app.post('/api/verify-code', authLimiter, (req, res) => {
+app.post('/api/verify-code', authLimiter, async (req, res) => {
   const { email, code, purpose } = req.body
-  const stored = verificationCodes.get(email)
+  const stored = await prisma.verificationCode.findUnique({ where: { email } })
 
   if (!stored) return res.status(400).json({ error: 'No verification code found' })
-  if (Date.now() > stored.expires) { verificationCodes.delete(email); return res.status(400).json({ error: 'Code expired' }) }
+  if (new Date() > stored.expiresAt) { await prisma.verificationCode.delete({ where: { email } }); return res.status(400).json({ error: 'Code expired' }) }
   if (stored.code !== code) return res.status(400).json({ error: 'Invalid code' })
   if (purpose && stored.purpose !== purpose) return res.status(400).json({ error: 'Invalid code purpose' })
 
-  verificationCodes.delete(email)
+  await prisma.verificationCode.delete({ where: { email } })
   res.json({ success: true, verified: true })
-})
-
-// ─── DEV BYPASS ───
-
-app.post('/api/auth/dev-login', async (req, res) => {
-  if (process.env.ENABLE_DEV_LOGIN !== 'true') {
-    return res.status(403).json({ error: 'Dev login is disabled. Set ENABLE_DEV_LOGIN=true to enable.' })
-  }
-
-  try {
-    let user = await prisma.user.findUnique({ where: { email: 'dev@localhost' } })
-    if (!user) {
-      user = await prisma.user.create({
-        data: { email: 'dev@localhost', name: 'Dev User', role: 'admin' },
-      })
-    }
-
-    const token = generateToken(user.id)
-    const refreshToken = generateRefreshToken(user.id)
-
-    await prisma.user.update({ where: { id: user.id }, data: { lastLogin: new Date(), loginCount: { increment: 1 } } })
-    await prisma.session.create({ data: { userId: user.id, token: refreshToken, expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) } })
-    await trackActivity(user.id, 'login', { method: 'dev' })
-
-    res.json({ success: true, token, refreshToken, user: { id: user.id, email: user.email, name: user.name, picture: user.picture, role: user.role } })
-  } catch (err) {
-    console.error('Dev login error:', err)
-    res.status(500).json({ error: 'Dev login failed' })
-  }
 })
 
 // ─── ADMIN PANEL AUTH ───
 
-app.post('/api/admin/auth', authMiddleware, async (req, res) => {
+app.post('/api/admin/auth', authMiddleware, authLimiter, async (req, res) => {
   const { password } = req.body
   if (!password) return res.status(400).json({ error: 'Password required' })
 
@@ -1105,9 +1106,9 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
-// ─── SERVE FRONTEND (Production) ───
+// ─── SERVE FRONTEND (Production, non-Vercel) ───
 
-if (IS_PRODUCTION) {
+if (IS_PRODUCTION && !process.env.VERCEL) {
   const distPath = join(__dirname, '..', 'dist')
 
   app.use(express.static(distPath, {
@@ -1209,39 +1210,45 @@ async function cleanupExpiredSessions() {
   } catch { /* ignore */ }
 }
 
-function cleanupVerificationCodes() {
-  const now = Date.now()
-  for (const [email, entry] of verificationCodes) {
-    if (now > entry.expires) verificationCodes.delete(email)
-  }
-}
-
-async function start() {
+async function cleanupVerificationCodes() {
   try {
-    await prisma.$connect()
-    console.log('Database connected')
-
-    if (!ADMIN_PANEL_PASSWORD_HASH) console.warn('⚠  ADMIN_PANEL_PASSWORD_HASH not set — admin panel verification will fail')
-    if (!process.env.JWT_SECRET) console.warn('⚠  JWT_SECRET not set — using ephemeral secret (sessions invalidate on restart)')
-    if (!ADMIN_EMAILS.length) console.warn('⚠  ADMIN_EMAILS not set — no admin emails configured')
-
-    await seedDefaultAdmin()
-    await seedDefaultFeatures()
-    await cleanupExpiredSessions()
-
-    setInterval(cleanupExpiredSessions, 60 * 60 * 1000)
-    setInterval(cleanupVerificationCodes, 5 * 60 * 1000)
-
-    app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`)
-    })
-  } catch (err) {
-    console.error('Failed to start server:', err)
-    process.exit(1)
-  }
+    await prisma.verificationCode.deleteMany({ where: { expiresAt: { lt: new Date() } } })
+  } catch { /* ignore */ }
 }
 
-start()
+// Standalone mode (local dev)
+if (!process.env.VERCEL) {
+  async function start() {
+    try {
+      await prisma.$connect()
+      console.log('Database connected')
+
+      if (!ADMIN_PANEL_PASSWORD_HASH) console.warn('⚠  ADMIN_PANEL_PASSWORD_HASH not set — admin panel verification will fail')
+      if (!process.env.JWT_SECRET) console.warn('⚠  JWT_SECRET not set — using ephemeral secret (sessions invalidate on restart)')
+      if (!ADMIN_EMAILS.length) console.warn('⚠  ADMIN_EMAILS not set — no admin emails configured')
+
+      await seedDefaultAdmin()
+      await seedDefaultFeatures()
+      await cleanupExpiredSessions()
+
+      _initialized = true
+
+      setInterval(cleanupExpiredSessions, 60 * 60 * 1000)
+      setInterval(cleanupVerificationCodes, 5 * 60 * 1000)
+
+      app.listen(PORT, () => {
+        console.log(`Server running on http://localhost:${PORT}`)
+      })
+    } catch (err) {
+      console.error('Failed to start server:', err)
+      process.exit(1)
+    }
+  }
+
+  start()
+}
+
+export default app
 
 process.on('SIGTERM', async () => {
   await prisma.$disconnect()
