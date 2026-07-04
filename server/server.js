@@ -26,10 +26,13 @@ const JWT_SECRET = process.env.JWT_SECRET || (() => {
   console.warn('   Generate a proper secret: node -e "console.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"')
   return s
 })()
-let ADMIN_PANEL_PASSWORD_HASH = process.env.ADMIN_PANEL_PASSWORD_HASH
-if (!ADMIN_PANEL_PASSWORD_HASH && process.env.ADMIN_PANEL_PASSWORD) {
-  ADMIN_PANEL_PASSWORD_HASH = await bcrypt.hash(process.env.ADMIN_PANEL_PASSWORD, 12)
-  console.log('ℹ  Hashed ADMIN_PANEL_PASSWORD at startup')
+let ADMIN_PANEL_PASSWORD_HASH = process.env.ADMIN_PANEL_PASSWORD
+  ? await bcrypt.hash(process.env.ADMIN_PANEL_PASSWORD, 12)
+  : process.env.ADMIN_PANEL_PASSWORD_HASH
+if (ADMIN_PANEL_PASSWORD_HASH) {
+  console.log('✓ Admin panel password configured')
+} else {
+  console.warn('⚠  No admin password configured — set ADMIN_PANEL_PASSWORD or ADMIN_PANEL_PASSWORD_HASH')
 }
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').filter(Boolean)
 const FRONTEND_URL = process.env.FRONTEND_URL || (IS_PRODUCTION ? 'https://todo-app.vercel.app' : 'http://localhost:5173')
@@ -1233,8 +1236,6 @@ if (!process.env.VERCEL) {
       await prisma.$connect()
       console.log('Database connected')
 
-      if (!ADMIN_PANEL_PASSWORD_HASH) console.warn('⚠  No admin password configured — set ADMIN_PANEL_PASSWORD or ADMIN_PANEL_PASSWORD_HASH')
-      if (!process.env.JWT_SECRET) console.warn('⚠  JWT_SECRET not set — using ephemeral secret (sessions invalidate on restart)')
       if (!ADMIN_EMAILS.length) console.warn('⚠  ADMIN_EMAILS not set — no admin emails configured')
 
       await seedDefaultAdmin()
