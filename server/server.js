@@ -88,7 +88,12 @@ app.use(compression({
 app.use(cookieParser())
 
 if (IS_PRODUCTION) {
-  app.use(cors({ origin: false }))
+  app.use(cors({
+    origin: FRONTEND_URL,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  }))
 } else {
   app.use(cors({
     origin: FRONTEND_URL,
