@@ -96,12 +96,12 @@ export default function TodoList({ onAddTodoWithDate, onDeleteWithUndo }) {
       </div>
 
       <div className="flex flex-col items-center gap-3">
-        <div className="toolbar-glass flex rounded-xl p-1 gap-0.5" role="tablist" aria-label="Filter by status">
+        <div className="toolbar-glass flex rounded-xl p-1 gap-0.5 overflow-x-auto max-w-full no-scrollbar" role="tablist" aria-label="Filter by status">
           {VIEW_TABS.map((tab) => {
             const count = tab.key === 'overdue' ? stats.overdue : tab.key === 'today' ? stats.dueToday : tab.key === 'active' ? stats.active : tab.key === 'completed' ? stats.completed : stats.total
             return (
               <button key={tab.key} onClick={() => setViewTab(tab.key)} role="tab" aria-selected={viewTab === tab.key}
-                className={`tab-glass px-2.5 py-1.5 text-xs font-medium rounded-lg cursor-pointer whitespace-nowrap ${
+                className={`tab-glass px-2.5 py-1.5 text-xs font-medium rounded-lg cursor-pointer whitespace-nowrap flex-shrink-0 ${
                   viewTab === tab.key ? 'active text-indigo-600 dark:text-indigo-400'
                   : `text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 ${tab.color || ''}`
                 }`}>
@@ -113,10 +113,10 @@ export default function TodoList({ onAddTodoWithDate, onDeleteWithUndo }) {
             )
           })}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           {calendarEnabled && (
           <button onClick={() => setShowCalendar(!showCalendar)}
-            className={`p-2 rounded-lg transition-all cursor-pointer ${showCalendar ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400' : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+            className={`p-2 rounded-lg transition-all cursor-pointer flex-shrink-0 ${showCalendar ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400' : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
             title="Calendar view" aria-label="Toggle calendar view" aria-pressed={showCalendar}>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -124,11 +124,11 @@ export default function TodoList({ onAddTodoWithDate, onDeleteWithUndo }) {
           </button>
           )}
           <select id="sort-select" aria-label="Sort by" value={sortBy} onChange={(e) => setSortBy(e.target.value)}
-            className="glass-select px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+            className="glass-select flex-1 sm:flex-none px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer">
             {SORT_OPTIONS.map((opt) => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
           </select>
           <button onClick={toggleSortAsc}
-            className="icon-btn-3d p-1.5 text-gray-400 rounded-lg cursor-pointer"
+            className="icon-btn-3d p-1.5 text-gray-400 rounded-lg cursor-pointer flex-shrink-0"
             title={sortAsc ? 'Ascending' : 'Descending'} aria-label={sortAsc ? 'Sort ascending' : 'Sort descending'}>
             <svg className={`w-4 h-4 transition-transform ${sortAsc ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
@@ -137,10 +137,10 @@ export default function TodoList({ onAddTodoWithDate, onDeleteWithUndo }) {
         </div>
       </div>
 
-      <div className="flex gap-1.5 flex-wrap" role="group" aria-label="Filter by category">
+      <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1" role="group" aria-label="Filter by category">
         {CATEGORY_FILTERS.map((cat) => (
           <button key={cat} onClick={() => setCategoryFilter(cat)}
-            className={`btn-3d px-3 py-1.5 text-xs font-medium rounded-lg cursor-pointer ${
+            className={`btn-3d px-3 py-1.5 text-xs font-medium rounded-lg cursor-pointer whitespace-nowrap flex-shrink-0 ${
               categoryFilter === cat ? 'bg-indigo-600 text-white border-indigo-500'
               : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
             }`}>
@@ -150,9 +150,9 @@ export default function TodoList({ onAddTodoWithDate, onDeleteWithUndo }) {
       </div>
 
       {tagFilterEnabled && allTags.length > 0 && (
-        <div className="flex gap-1.5 flex-wrap" role="group" aria-label="Filter by tag">
+        <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1" role="group" aria-label="Filter by tag">
           <button onClick={() => setTagFilter('')}
-            className={`btn-3d px-3 py-1.5 text-xs font-medium rounded-lg cursor-pointer ${
+            className={`btn-3d px-3 py-1.5 text-xs font-medium rounded-lg cursor-pointer whitespace-nowrap flex-shrink-0 ${
               !tagFilter ? 'bg-purple-600 text-white border-purple-500'
               : 'text-purple-500 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40'
             }`}>
@@ -160,7 +160,7 @@ export default function TodoList({ onAddTodoWithDate, onDeleteWithUndo }) {
           </button>
           {allTags.map((tag) => (
             <button key={tag} onClick={() => setTagFilter(tag === tagFilter ? '' : tag)}
-              className={`btn-3d px-3 py-1.5 text-xs font-medium rounded-lg cursor-pointer ${
+              className={`btn-3d px-3 py-1.5 text-xs font-medium rounded-lg cursor-pointer whitespace-nowrap flex-shrink-0 ${
                 tagFilter === tag ? 'bg-purple-600 text-white border-purple-500'
                 : 'text-purple-500 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40'
               }`}>
