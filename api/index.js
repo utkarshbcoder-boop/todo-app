@@ -5,5 +5,4 @@ export default app
 export const config = {
   api: { bodyParser: false },
   maxDuration: 30,
-  runtime: 'nodejs20.x',
 }
