@@ -130,20 +130,34 @@ const apiLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 100, message: { err
 
 // Vercel serverless: initialize DB + seed on first request
 let _initialized = false
+let _initPromise = null
 if (process.env.VERCEL) {
   app.use(async (req, res, next) => {
     try {
-      if (!_initialized) {
-        await prisma.$connect()
-        await seedDefaultAdmin()
-        await seedDefaultFeatures()
-        await cleanupExpiredSessions()
-        _initialized = true
+      if (!_initialized && !_initPromise) {
+        _initPromise = (async () => {
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              await prisma.$connect()
+              console.log('✓ Database connected (attempt ' + attempt + ')')
+              await seedDefaultAdmin()
+              await seedDefaultFeatures()
+              await cleanupExpiredSessions()
+              _initialized = true
+              return
+            } catch (err) {
+              console.error('Init attempt ' + attempt + ' failed:', err.message || err)
+              if (attempt === 3) throw err
+              await new Promise(r => setTimeout(r, 1000 * attempt))
+            }
+          }
+        })()
       }
+      if (_initPromise) await _initPromise
       next()
     } catch (err) {
-      console.error('Init error:', err)
-      res.status(500).json({ error: 'Server initialization failed' })
+      console.error('Server init error:', err)
+      res.status(500).json({ error: 'Server initialization failed', detail: process.env.VERCEL ? undefined : err.message })
     }
   })
 }

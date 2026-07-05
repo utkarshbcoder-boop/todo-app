@@ -7,7 +7,7 @@
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "vite",
     "dev:server": "cd server && node --watch server.js",
-    "build": "cd server && npx prisma generate && cd .. && vite build",
+    "build": "cd server && npm install && npx prisma generate && npx prisma db push --accept-data-loss && cd .. && vite build",
     "start": "cd server && node server.js",
     "preview": "vite preview",
     "lint": "eslint .",

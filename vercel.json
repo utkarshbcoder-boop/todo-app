@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd server && npx prisma generate && cd .. && npx vite build",
+  "buildCommand": "cd server && npm install && npx prisma generate && npx prisma db push --accept-data-loss && cd .. && npx vite build",
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
