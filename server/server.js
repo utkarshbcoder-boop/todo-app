@@ -185,6 +185,7 @@ function sanitizeInput(str) {
 function validateAttachment(attachment) {
   if (!attachment || typeof attachment !== 'object') return false
   if (!attachment.name || typeof attachment.name !== 'string') return false
+  if (attachment.name.length > 256) return false
   if (!attachment.type || typeof attachment.type !== 'string') return false
   if (!attachment.dataUrl || typeof attachment.dataUrl !== 'string') return false
   if (attachment.size > MAX_ATTACHMENT_SIZE) return false
