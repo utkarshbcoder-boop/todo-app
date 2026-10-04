@@ -155,7 +155,7 @@ function AppContent() {
 
   if (!initialized) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 dark:from-gray-950 dark:via-gray-900 dark:to-indigo-950 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-pink-50 via-rose-50 to-indigo-50 dark:from-[#160507] dark:via-[#1a0809] dark:to-[#120306] flex items-center justify-center">
         <BackgroundScene />
         <div className="relative z-10 text-center">
           <div className="glass-elevated inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 animate-pulse">
@@ -175,7 +175,7 @@ function AppContent() {
 
   if (!loaded) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 dark:from-gray-950 dark:via-gray-900 dark:to-indigo-950">
+      <div className="min-h-screen bg-gradient-to-br from-pink-50 via-rose-50 to-indigo-50 dark:from-[#160507] dark:via-[#1a0809] dark:to-[#120306]">
         <BackgroundScene />
       <div className="relative z-10 max-w-2xl mx-auto px-4 py-8 sm:py-12 pb-24 sm:pb-12" style={{ paddingLeft: 'max(1rem, env(safe-area-inset-left))', paddingRight: 'max(1rem, env(safe-area-inset-right))', paddingBottom: 'max(6rem, env(safe-area-inset-bottom))' }}>
           <div className="text-center mb-10">
@@ -190,7 +190,7 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 dark:from-gray-950 dark:via-gray-900 dark:to-indigo-950 transition-colors duration-500">
+    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-rose-50 to-indigo-50 dark:from-[#160507] dark:via-[#1a0809] dark:to-[#120306] transition-colors duration-500">
       <BackgroundScene />
       <ThemeToggle />
       <FeatureGate feature="i18n"><LanguageToggle /></FeatureGate>

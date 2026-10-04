@@ -126,18 +126,19 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
         {/* Select checkbox */}
         <button onClick={() => selectTodo(todo.id)} role="checkbox" aria-checked={isSelected} aria-label={`Select todo: ${todo.text}`}
           className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-all cursor-pointer ${
-            isSelected ? 'bg-indigo-600 border-indigo-600' : 'border-gray-300 dark:border-gray-600 hover:border-indigo-400'
+            isSelected ? 'bg-indigo-600 border-indigo-600' : 'bg-white/80 dark:bg-gray-800/80 border-gray-400 dark:border-gray-500 hover:border-indigo-400'
           }`}>
           {isSelected && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
         </button>
 
         {/* Complete toggle */}
         <button onClick={handleToggle} role="checkbox" aria-checked={todo.completed} aria-label={`Mark "${todo.text}" as ${todo.completed ? 'incomplete' : 'complete'}`}
+          style={todo.completed ? { background: 'linear-gradient(135deg, #f472b6, #a78bfa 50%, #60a5fa)', borderColor: 'transparent', boxShadow: '0 2px 10px rgba(167, 139, 250, 0.5)' } : undefined}
           className={`mt-0.5 flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all cursor-pointer ${
-            todo.completed ? 'bg-indigo-600 border-indigo-600' : 'border-gray-300 dark:border-gray-600 hover:border-indigo-500'
+            todo.completed ? '' : 'bg-white/80 dark:bg-gray-800/80 border-gray-400 dark:border-gray-500 hover:border-indigo-500 shadow-sm'
           }`}>
           {todo.completed && (
-            <motion.svg initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <motion.svg initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-3.5 h-3.5 text-white drop-shadow" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={4}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </motion.svg>
           )}
@@ -215,7 +216,7 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
                   {todo.subtasks.map((st) => (
                     <div key={st.id} className="flex items-center gap-2 text-sm">
                       <button onClick={() => toggleSubtask(todo.id, st.id)} role="checkbox" aria-checked={st.completed} aria-label={`Subtask: ${st.text}`}
-                        className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center transition-all cursor-pointer ${st.completed ? 'bg-indigo-600 border-indigo-600' : 'border-gray-300 dark:border-gray-600'}`}>
+                        className={`flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center transition-all cursor-pointer ${st.completed ? 'bg-indigo-600 border-indigo-600' : 'bg-white/80 dark:bg-gray-800/80 border-gray-400 dark:border-gray-500'}`}>
                         {st.completed && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
                       </button>
                       <span className={`flex-1 ${st.completed ? 'line-through text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-200'}`}>{st.text}</span>

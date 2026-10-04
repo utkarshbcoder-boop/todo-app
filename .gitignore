@@ -31,3 +31,4 @@ server/.env.*.local
 *.sln
 *.sw?
 .vercel
+.env*
