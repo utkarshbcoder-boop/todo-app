@@ -8,11 +8,11 @@ import { parseISO } from 'date-fns/parseISO'
 import { addDays } from 'date-fns/addDays'
 import { addMonths } from 'date-fns/addMonths'
 import { format } from 'date-fns/format'
-import { getAccessToken } from './userStore'
+import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where, getDocs, writeBatch } from 'firebase/firestore'
+import { db, auth } from '../firebase'
 
 const PRIORITY_ORDER = { High: 0, Medium: 1, Low: 2 }
 const MAX_HISTORY = 50
-const API_URL = import.meta.env.VITE_API_URL || '/api'
 
 const toLocalDateStr = (date) => {
   const y = date.getFullYear()
@@ -78,38 +78,8 @@ function serializeTodoForServer(todo) {
   }
 }
 
-async function apiRequest(method, path, body = null) {
-  const token = getAccessToken()
-  if (!token) return { ok: false, error: 'No auth token' }
-
-  const opts = {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-  }
-  if (body) opts.body = JSON.stringify(body)
-
-  try {
-    let res = await fetch(`${API_URL}${path}`, opts)
-
-    if (res.status === 401) {
-      const { useUserStore } = await import('./userStore.js')
-      const refreshed = await useUserStore.getState().refreshAccessToken()
-      if (refreshed) {
-        const newToken = getAccessToken()
-        opts.headers.Authorization = `Bearer ${newToken}`
-        res = await fetch(`${API_URL}${path}`, opts)
-      } else {
-        return { ok: false, status: 401, error: 'Session expired' }
-      }
-    }
-
-    const text = await res.text().catch(() => '')
-    let data = {}
-    try { data = text ? JSON.parse(text) : {} } catch {}
-    return { ok: res.ok, status: res.status, data, error: res.ok ? null : (data.error || `Server error (HTTP ${res.status})`) }
-  } catch {
-    return { ok: false, error: 'Network error - offline' }
-  }
+function uid() {
+  return auth.currentUser?.uid || null
 }
 
 const _syncQueue = []
@@ -120,15 +90,27 @@ async function flushSyncQueue() {
   _syncing = true
   try {
     while (_syncQueue.length > 0) {
-      const batch = _syncQueue.splice(0, 1)[0]
-      if (batch.type === 'full') {
-        await apiRequest('PUT', '/todos', { todos: batch.todos.map(serializeTodoForServer) })
-      } else if (batch.type === 'create') {
-        await apiRequest('POST', '/todos', serializeTodoForServer(batch.todo))
-      } else if (batch.type === 'update') {
-        await apiRequest('PUT', `/todos/${batch.id}`, batch.updates)
-      } else if (batch.type === 'delete') {
-        await apiRequest('DELETE', `/todos/${batch.id}`)
+      const batch = _syncQueue.shift()
+      const userId = uid()
+      if (!userId) { _syncQueue.unshift(batch); break }
+      try {
+        if (batch.type === 'full') {
+          const snap = await getDocs(query(collection(db, 'todos'), where('userId', '==', userId)))
+          const wb = writeBatch(db)
+          snap.docs.forEach((d) => wb.delete(d.ref))
+          batch.todos.forEach((t) => {
+            wb.set(doc(db, 'todos', t.id), { ...serializeTodoForServer(t), userId })
+          })
+          await wb.commit()
+        } else if (batch.type === 'create') {
+          await setDoc(doc(db, 'todos', batch.todo.id), { ...serializeTodoForServer(batch.todo), userId })
+        } else if (batch.type === 'update') {
+          await setDoc(doc(db, 'todos', batch.id), { ...batch.updates, userId }, { merge: true })
+        } else if (batch.type === 'delete') {
+          await deleteDoc(doc(db, 'todos', batch.id))
+        }
+      } catch (err) {
+        console.error('Firestore sync error:', err.message)
       }
     }
   } finally {
@@ -140,6 +122,31 @@ async function flushSyncQueue() {
 function queueSync(type, payload) {
   _syncQueue.push({ type, ...payload })
   queueMicrotask(flushSyncQueue)
+}
+
+let _unsubscribeTodos = null
+let _listenerUid = null
+
+function subscribeToTodos(set) {
+  const userId = uid()
+  if (!userId) return
+  if (_unsubscribeTodos && _listenerUid === userId) return
+  if (_unsubscribeTodos) { _unsubscribeTodos(); _unsubscribeTodos = null }
+  _listenerUid = userId
+  const q = query(collection(db, 'todos'), where('userId', '==', userId))
+  _unsubscribeTodos = onSnapshot(q, (snap) => {
+    const todos = snap.docs
+      .map((d) => ({ ...d.data(), id: d.id }))
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || new Date(a.createdAt) - new Date(b.createdAt))
+      .map((t) => {
+        const rest = { ...t }
+        delete rest.userId
+        return rest
+      })
+    set({ todos, _serverLoaded: true })
+  }, (err) => {
+    console.error('Todos listener error:', err.message)
+  })
 }
 
 export const useTodoStore = create(
@@ -162,44 +169,7 @@ export const useTodoStore = create(
       _serverLoaded: false,
 
       loadFromServer: async () => {
-        const token = getAccessToken()
-        if (!token) return
-        const result = await apiRequest('GET', '/todos')
-        if (!result.ok || !result.data) return
-
-        const serverTodos = result.data.todos || []
-        const state = get()
-
-        if (state.todos.length === 0) {
-          set({ todos: serverTodos, _serverLoaded: true })
-          return
-        }
-
-        const serverMap = new Map(serverTodos.map(t => [t.id, t]))
-        const serverIds = new Set(serverTodos.map(t => t.id))
-
-        const merged = []
-        const seenIds = new Set()
-
-        for (const localTodo of state.todos) {
-          const serverTodo = serverMap.get(localTodo.id)
-          if (serverTodo) {
-            const localTime = new Date(localTodo.createdAt).getTime()
-            const serverTime = new Date(serverTodo.createdAt).getTime()
-            merged.push(serverTime > localTime ? serverTodo : localTodo)
-          } else if (!serverIds.has(localTodo.id)) {
-            merged.push(localTodo)
-          }
-          seenIds.add(localTodo.id)
-        }
-
-        for (const serverTodo of serverTodos) {
-          if (!seenIds.has(serverTodo.id)) {
-            merged.push(serverTodo)
-          }
-        }
-
-        set({ todos: merged, _serverLoaded: true })
+        subscribeToTodos(set)
       },
 
       addTodo: (data) => {

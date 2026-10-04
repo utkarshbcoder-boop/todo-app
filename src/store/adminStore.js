@@ -1,8 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { getAccessToken } from './userStore'
-
-const API_URL = import.meta.env.VITE_API_URL || '/api'
+import { doc, onSnapshot, setDoc } from 'firebase/firestore'
+import { db } from '../firebase'
 
 const defaultFeatures = {
   subtasks: { enabled: true, name: 'Subtasks', description: 'Add subtasks to your todos' },
@@ -25,29 +24,26 @@ const defaultFeatures = {
   recurringView: { enabled: true, name: 'Recurring View', description: 'View all recurring tasks' },
 }
 
-async function fetchServerFeatures() {
-  try {
-    const res = await fetch(`${API_URL}/features`)
-    if (!res.ok) return null
-    const data = await res.json()
-    return data.features || null
-  } catch {
-    return null
-  }
-}
-
 async function persistFeatures(features) {
-  const token = getAccessToken()
-  if (!token) return
   try {
-    await fetch(`${API_URL}/admin/features`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ features }),
-    })
+    await setDoc(doc(db, 'config', 'features'), { features }, { merge: true })
   } catch {
     // silent
   }
+}
+
+let _featuresUnsub = null
+
+function subscribeFeatures(set) {
+  if (_featuresUnsub) return
+  _featuresUnsub = onSnapshot(doc(db, 'config', 'features'), (snap) => {
+    const data = snap.data()
+    if (data?.features && Object.keys(data.features).length > 0) {
+      set({ features: data.features, _serverLoaded: true })
+    } else {
+      set({ _serverLoaded: true })
+    }
+  }, () => set({ _serverLoaded: true }))
 }
 
 export const useAdminStore = create(
@@ -59,12 +55,7 @@ export const useAdminStore = create(
       _serverLoaded: false,
 
       loadFeaturesFromServer: async () => {
-        const serverFeatures = await fetchServerFeatures()
-        if (serverFeatures && Object.keys(serverFeatures).length > 0) {
-          set({ features: serverFeatures, _serverLoaded: true })
-        } else {
-          set({ _serverLoaded: true })
-        }
+        subscribeFeatures(set)
       },
 
       login: (email) => {

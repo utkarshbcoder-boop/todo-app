@@ -1,15 +1,8 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
-import crypto from 'crypto'
-import bcrypt from 'bcryptjs'
-import jwt from 'jsonwebtoken'
-import cookieParser from 'cookie-parser'
-import { OAuth2Client } from 'google-auth-library'
 import admin from 'firebase-admin'
-import nodemailer from 'nodemailer'
 import rateLimit from 'express-rate-limit'
-import { PrismaClient } from '@prisma/client'
 import helmet from 'helmet'
 import compression from 'compression'
 import { fileURLToPath } from 'url'
@@ -21,50 +14,11 @@ const __dirname = dirname(__filename)
 const app = express()
 const PORT = process.env.PORT || 3001
 const IS_PRODUCTION = process.env.NODE_ENV === 'production'
-const JWT_SECRET = process.env.JWT_SECRET || (() => {
-  const s = crypto.randomBytes(64).toString('hex')
-  console.warn('⚠  JWT_SECRET not set — using ephemeral secret. All sessions will invalidate on restart.')
-  console.warn('   Generate a proper secret: node -e "console.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"')
-  return s
-})()
-let ADMIN_PANEL_PASSWORD_HASH = process.env.ADMIN_PANEL_PASSWORD
-  ? await bcrypt.hash(process.env.ADMIN_PANEL_PASSWORD, 12)
-  : process.env.ADMIN_PANEL_PASSWORD_HASH
-if (ADMIN_PANEL_PASSWORD_HASH) {
-  console.log('✓ Admin panel password configured')
-} else {
-  console.warn('⚠  No admin password configured — set ADMIN_PANEL_PASSWORD or ADMIN_PANEL_PASSWORD_HASH')
-}
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').filter(Boolean)
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
 const FRONTEND_URL = process.env.FRONTEND_URL || (IS_PRODUCTION ? 'https://todo-app.vercel.app' : 'http://localhost:5173')
 
-// Allowed attachment MIME types and max size (5MB)
-const ALLOWED_ATTACHMENT_TYPES = [
-  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
-  'application/pdf',
-  'text/plain', 'text/markdown',
-  'application/json',
-  'application/zip',
-]
-const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024 // 5MB
-
-// Whitelisted values for validated fields
-const VALID_CATEGORIES = ['Personal', 'Work', 'Shopping', 'Health', 'Finance', 'Education', 'Other']
-const VALID_PRIORITIES = ['Low', 'Medium', 'High', 'Urgent']
-const VALID_RECURRENCES = ['none', 'daily', 'weekly', 'biweekly', 'monthly', 'yearly']
-
-// Account lockout: uses database (works in serverless)
-const MAX_LOGIN_ATTEMPTS = 5
-const LOCKOUT_DURATION = 15 * 60 * 1000 // 15 minutes
-
-const prisma = globalThis.__prisma ?? new PrismaClient()
-if (process.env.VERCEL) globalThis.__prisma = prisma
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || '')
-
 if (!admin.apps.length) {
-  const initOptions = {
-    projectId: process.env.FIREBASE_PROJECT_ID || 'todo-app-5b920',
-  }
+  const initOptions = { projectId: process.env.FIREBASE_PROJECT_ID || 'todo-app-5b920' }
   if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
     initOptions.credential = admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON))
   }
@@ -75,17 +29,17 @@ if (!admin.apps.length) {
   }
 }
 
-// ─── SECURITY & PERFORMANCE ───
+const db = admin.firestore()
 
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "https://accounts.google.com", "https://apis.google.com"],
+      scriptSrc: ["'self'", "https://apis.google.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
-      connectSrc: ["'self'", "https://accounts.google.com", "https://*.googleapis.com", "https://*.firebaseio.com", "https://*.firebasedatabase.app", "wss://*.firebaseio.com"],
+      connectSrc: ["'self'", "https://*.googleapis.com", "https://*.firebaseio.com", "https://*.firebasedatabase.app", "wss://*.firebaseio.com"],
       frameSrc: ["https://accounts.google.com"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
@@ -97,172 +51,59 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
 }))
 
-app.use(compression({
-  filter: (req, res) => {
-    if (req.headers['x-no-compression']) return false
-    return compression.filter(req, res)
-  },
-  level: 6,
-  threshold: 1024,
+app.use(compression())
+
+app.use(cors({
+  origin: FRONTEND_URL,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }))
 
-// Cookie parser middleware
-app.use(cookieParser())
+app.use(express.json({ limit: '2mb' }))
 
-if (IS_PRODUCTION) {
-  app.use(cors({
-    origin: FRONTEND_URL,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  }))
-} else {
-  app.use(cors({
-    origin: FRONTEND_URL,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  }))
-}
-
-app.use(express.json({ limit: '10mb' }))
-
-// Additional security headers
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('X-Frame-Options', 'DENY')
-  res.setHeader('X-XSS-Protection', '1; mode=block')
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()')
   if (IS_PRODUCTION) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload')
   }
   next()
 })
 
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many attempts, try again later' } })
-const apiLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 100, message: { error: 'Rate limit exceeded' } })
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, message: { error: 'Too many attempts, try again later' } })
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, message: { error: 'Rate limit exceeded' } })
 
-// Vercel serverless: initialize DB + seed on first request
-let _initialized = false
-let _initPromise = null
-if (process.env.VERCEL) {
-  app.use(async (req, res, next) => {
-    try {
-      if (!_initialized && !_initPromise) {
-        _initPromise = (async () => {
-          for (let attempt = 1; attempt <= 3; attempt++) {
-            try {
-              await prisma.$connect()
-              console.log('✓ Database connected (attempt ' + attempt + ')')
-              await seedDefaultAdmin()
-              await seedDefaultFeatures()
-              await cleanupExpiredSessions()
-              _initialized = true
-              return
-            } catch (err) {
-              console.error('Init attempt ' + attempt + ' failed:', err.message || err)
-              if (attempt === 3) throw err
-              await new Promise(r => setTimeout(r, 1000 * attempt))
-            }
-          }
-        })()
-      }
-      if (_initPromise) await _initPromise
-      next()
-    } catch (err) {
-      console.error('Server init error:', err)
-      res.status(500).json({ error: 'Server initialization failed', detail: process.env.VERCEL ? undefined : err.message })
-    }
-  })
+const parseJson = (v, fallback) => {
+  if (v === undefined || v === null) return fallback
+  if (typeof v === 'string') { try { return JSON.parse(v) } catch { return fallback } }
+  return v
 }
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER || '',
-    pass: process.env.GMAIL_APP_PASSWORD || '',
-  },
-})
-
-// ─── INPUT SANITIZATION ───
-
-function sanitizeInput(str) {
-  if (typeof str !== 'string') return str
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;')
-}
-
-function validateAttachment(attachment) {
-  if (!attachment || typeof attachment !== 'object') return false
-  if (!attachment.name || typeof attachment.name !== 'string') return false
-  if (attachment.name.length > 256) return false
-  if (!attachment.type || typeof attachment.type !== 'string') return false
-  if (!attachment.dataUrl || typeof attachment.dataUrl !== 'string') return false
-  if (attachment.size > MAX_ATTACHMENT_SIZE) return false
-  if (!ALLOWED_ATTACHMENT_TYPES.includes(attachment.type)) return false
-  // Validate dataUrl format
-  if (!attachment.dataUrl.startsWith('data:')) return false
-  return true
-}
-
-function validateCategory(cat) {
-  return VALID_CATEGORIES.includes(cat)
-}
-
-function validatePriority(pri) {
-  return VALID_PRIORITIES.includes(pri)
-}
-
-function validateRecurrence(rec) {
-  return VALID_RECURRENCES.includes(rec)
-}
-
-// Account lockout helpers
-async function checkLockout(email) {
-  const entry = await prisma.loginAttempt.findUnique({ where: { email } })
-  if (!entry) return false
-  if (entry.lockedUntil && new Date() < entry.lockedUntil) return true
-  if (entry.lockedUntil && new Date() >= entry.lockedUntil) {
-    await prisma.loginAttempt.delete({ where: { email } })
-    return false
-  }
-  return false
-}
-
-async function recordFailedLogin(email) {
-  const entry = await prisma.loginAttempt.findUnique({ where: { email } })
-  if (!entry) {
-    const count = 1
-    const lockedUntil = count >= MAX_LOGIN_ATTEMPTS ? new Date(Date.now() + LOCKOUT_DURATION) : null
-    await prisma.loginAttempt.create({ data: { email, count, lockedUntil } })
-  } else {
-    const count = entry.count + 1
-    const lockedUntil = count >= MAX_LOGIN_ATTEMPTS ? new Date(Date.now() + LOCKOUT_DURATION) : entry.lockedUntil
-    await prisma.loginAttempt.update({ where: { email }, data: { count, lockedUntil } })
+const serializeTodo = (docSnap) => {
+  const t = docSnap.data()
+  return {
+    ...t,
+    id: docSnap.id,
+    tags: parseJson(t.tags, []),
+    subtasks: parseJson(t.subtasks, []),
+    attachments: parseJson(t.attachments, []),
+    blockedBy: parseJson(t.blockedBy, []),
   }
 }
 
-async function clearFailedLogins(email) {
-  await prisma.loginAttempt.deleteMany({ where: { email } })
-}
-
-// verificationCodes now stored in database (VerificationCode model)
-
-function generateCode() {
-  return crypto.randomInt(100000, 999999).toString()
-}
-
-function generateToken(userId) {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '15m' })
-}
-
-function generateRefreshToken(userId) {
-  return jwt.sign({ userId, jti: crypto.randomUUID() }, JWT_SECRET, { expiresIn: '30d' })
+async function trackActivity(userId, action, details = {}) {
+  try {
+    await db.collection('activities').add({
+      userId,
+      action,
+      details: JSON.stringify(details),
+      createdAt: new Date().toISOString(),
+    })
+  } catch (err) {
+    console.error('Activity tracking error:', err.message)
+  }
 }
 
 async function authMiddleware(req, res, next) {
@@ -271,610 +112,62 @@ async function authMiddleware(req, res, next) {
     return res.status(401).json({ error: 'Authentication required' })
   }
   try {
-    const decoded = jwt.verify(header.split(' ')[1], JWT_SECRET)
-    const user = await prisma.user.findUnique({ where: { id: decoded.userId } })
-    if (!user || user.status !== 'active') {
-      return res.status(401).json({ error: 'Invalid or banned account' })
+    const decoded = await admin.auth().verifyIdToken(header.split(' ')[1])
+    const userSnap = await db.collection('users').doc(decoded.uid).get()
+    let user = userSnap.exists ? userSnap.data() : null
+    if (!user && decoded.email) {
+      user = { id: decoded.uid, email: decoded.email, name: decoded.name || decoded.email.split('@')[0], picture: decoded.picture || null, role: 'user', status: 'active' }
+      await db.collection('users').doc(decoded.uid).set({ ...user, createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), loginCount: 1 })
     }
+    if (!user || user.status === 'banned' || user.status === 'suspended') {
+      return res.status(403).json({ error: 'Account is not accessible' })
+    }
+    user.id = decoded.uid
     req.user = user
-    req.userId = decoded.userId
+    req.userId = decoded.uid
     next()
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' })
   }
 }
 
-async function adminMiddleware(req, res, next) {
-  if (!req.user || (req.user.role !== 'admin' && !ADMIN_EMAILS.includes(req.user.email))) {
-    return res.status(403).json({ error: 'Admin access required' })
-  }
+function adminMiddleware(req, res, next) {
+  const isAdmin = req.user && (req.user.role === 'admin' || ADMIN_EMAILS.includes((req.user.email || '').toLowerCase()))
+  if (!isAdmin) return res.status(403).json({ error: 'Admin access required' })
   next()
 }
 
-async function trackActivity(userId, action, details = {}) {
-  try {
-    await prisma.activity.create({
-      data: {
-        userId,
-        action,
-        details: JSON.stringify(details),
-      },
-    })
-  } catch (err) {
-    console.error('Activity tracking error:', err.message)
-  }
-}
+// ─── HEALTH ───
 
-// ─── AUTH ROUTES ───
-
-app.post('/api/auth/register', authLimiter, async (req, res) => {
-  const { email, password, name } = req.body
-
-  if (!email || !password || !name) {
-    return res.status(400).json({ error: 'Email, password, and name are required' })
-  }
-
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters' })
-  }
-
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  if (!emailRegex.test(email)) {
-    return res.status(400).json({ error: 'Invalid email format' })
-  }
-
-  try {
-    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } })
-    if (existing) {
-      // Return success to prevent email enumeration
-      return res.json({ success: true, message: 'If this email is not already registered, your account has been created.' })
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 12)
-    const role = ADMIN_EMAILS.includes(email.toLowerCase()) ? 'admin' : 'user'
-
-    const user = await prisma.user.create({
-      data: {
-        email: email.toLowerCase(),
-        name,
-        password: hashedPassword,
-        role,
-      },
-    })
-
-    const token = generateToken(user.id)
-    const refreshToken = generateRefreshToken(user.id)
-
-    await prisma.session.create({
-      data: {
-        userId: user.id,
-        token: refreshToken,
-        userAgent: req.headers['user-agent'],
-        ip: req.ip,
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      },
-    })
-
-    await trackActivity(user.id, 'register', { method: 'email' })
-
-    // Set refresh token as httpOnly cookie for better security
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: IS_PRODUCTION,
-      sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      path: '/api/auth',
-    })
-
-    res.json({
-      success: true,
-      token,
-      user: { id: user.id, email: user.email, name: user.name, picture: user.picture, role: user.role },
-    })
-  } catch (err) {
-    console.error('Registration error:', err)
-    res.status(500).json({ error: 'Registration failed' })
-  }
-})
-
-app.post('/api/auth/login', authLimiter, async (req, res) => {
-  const { email, password } = req.body
-
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required' })
-  }
-
-  const normalizedEmail = email.toLowerCase()
-
-  // Check account lockout
-  if (await checkLockout(normalizedEmail)) {
-    return res.status(429).json({ error: 'Too many failed attempts. Account temporarily locked. Try again later.' })
-  }
-
-  try {
-    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } })
-    if (!user) {
-      recordFailedLogin(normalizedEmail)
-      return res.status(401).json({ error: 'Invalid credentials' })
-    }
-
-    if (user.status === 'banned' || user.status === 'suspended') {
-      return res.status(403).json({ error: 'Account is not accessible. Contact support.' })
-    }
-
-    if (!user.password) {
-      // Don't reveal which auth method is used
-      return res.status(401).json({ error: 'Invalid credentials' })
-    }
-
-    const valid = await bcrypt.compare(password, user.password)
-    if (!valid) {
-      recordFailedLogin(normalizedEmail)
-      return res.status(401).json({ error: 'Invalid credentials' })
-    }
-
-    // Successful login — clear failed attempts
-    clearFailedLogins(normalizedEmail)
-
-    const token = generateToken(user.id)
-    const refreshToken = generateRefreshToken(user.id)
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        lastLogin: new Date(),
-        loginCount: { increment: 1 },
-        role: ADMIN_EMAILS.includes(normalizedEmail) ? 'admin' : user.role,
-      },
-    })
-
-    await prisma.session.create({
-      data: {
-        userId: user.id,
-        token: refreshToken,
-        userAgent: req.headers['user-agent'],
-        ip: req.ip,
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      },
-    })
-
-    await trackActivity(user.id, 'login', { method: 'email' })
-
-    // Set refresh token as httpOnly cookie for better security
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: IS_PRODUCTION,
-      sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      path: '/api/auth',
-    })
-
-    res.json({
-      success: true,
-      token,
-      user: { id: user.id, email: user.email, name: user.name, picture: user.picture, role: user.role },
-    })
-  } catch (err) {
-    console.error('Login error:', err)
-    res.status(500).json({ error: 'Login failed' })
-  }
-})
-
-app.post('/api/auth/refresh', async (req, res) => {
-  // Only accept refresh token from httpOnly cookie (not request body)
-  const refreshToken = req.cookies?.refreshToken
-  if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' })
-
-  try {
-    const decoded = jwt.verify(refreshToken, JWT_SECRET)
-    const session = await prisma.session.findUnique({ where: { token: refreshToken } })
-    if (!session || new Date(session.expiresAt) < new Date()) {
-      return res.status(401).json({ error: 'Invalid refresh token' })
-    }
-
-    const token = generateToken(decoded.userId)
-    res.json({ success: true, token })
-  } catch {
-    res.status(401).json({ error: 'Invalid refresh token' })
-  }
-})
-
-app.post('/api/auth/logout', async (req, res) => {
-  const refreshToken = req.cookies?.refreshToken
-  if (refreshToken) {
-    try {
-      const decoded = jwt.verify(refreshToken, JWT_SECRET)
-      await prisma.session.deleteMany({ where: { token: refreshToken } })
-      if (decoded?.userId) await trackActivity(decoded.userId, 'logout', {})
-    } catch {
-      await prisma.session.deleteMany({ where: { token: refreshToken } }).catch(() => {})
-    }
-  }
-
-  // Clear refresh token cookie
-  res.clearCookie('refreshToken', { path: '/api/auth' })
-  res.json({ success: true })
-})
-
-app.post('/api/auth/google', async (req, res) => {
-  const { credential } = req.body
-
-  try {
-    const ticket = await googleClient.verifyIdToken({
-      idToken: credential,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    })
-
-    const payload = ticket.getPayload()
-    const { sub, email, name, picture } = payload
-
-    let user = await prisma.user.findFirst({
-      where: { OR: [{ email: email.toLowerCase() }, { id: sub }] },
-    })
-
-    const isNewUser = !user
-
-    if (!user) {
-      const role = ADMIN_EMAILS.includes(email.toLowerCase()) ? 'admin' : 'user'
-      user = await prisma.user.create({
-        data: {
-          id: sub,
-          email: email.toLowerCase(),
-          name,
-          picture,
-          role,
-        },
-      })
-    } else {
-      const role = ADMIN_EMAILS.includes(email.toLowerCase()) ? 'admin' : user.role
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          lastLogin: new Date(),
-          loginCount: { increment: 1 },
-          picture: picture || user.picture,
-          name: name || user.name,
-          role,
-        },
-      })
-    }
-
-    if (user.status === 'banned') {
-      return res.status(403).json({ error: 'Account is banned' })
-    }
-
-    const token = generateToken(user.id)
-    const refreshToken = generateRefreshToken(user.id)
-
-    await prisma.session.create({
-      data: {
-        userId: user.id,
-        token: refreshToken,
-        userAgent: req.headers['user-agent'],
-        ip: req.ip,
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      },
-    })
-
-    await trackActivity(user.id, isNewUser ? 'register' : 'login', { method: 'google' })
-
-    // Set refresh token as httpOnly cookie
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: IS_PRODUCTION,
-      sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-      path: '/api/auth',
-    })
-
-    res.json({
-      success: true,
-      token,
-      user: { id: user.id, email: user.email, name: user.name, picture: user.picture, role: user.role },
-    })
-  } catch (error) {
-    console.error('Google auth error:', error)
-    res.status(401).json({ error: 'Invalid Google credential' })
-  }
-})
-
-app.post('/api/auth/firebase', authLimiter, async (req, res) => {
-  const { idToken } = req.body
-  if (!idToken) return res.status(400).json({ error: 'idToken required' })
-
-  try {
-    const decoded = await admin.auth().verifyIdToken(idToken)
-    const { uid, email, name, picture } = decoded
-
-    if (!email) return res.status(401).json({ error: 'Firebase account has no email' })
-
-    const normalizedEmail = email.toLowerCase()
-    let user = await prisma.user.findFirst({
-      where: { OR: [{ email: normalizedEmail }, { id: uid }] },
-    })
-
-    const isNewUser = !user
-
-    if (!user) {
-      const role = ADMIN_EMAILS.includes(normalizedEmail) ? 'admin' : 'user'
-      user = await prisma.user.create({
-        data: { id: uid, email: normalizedEmail, name: name || email.split('@')[0], picture: picture || null, role },
-      })
-    } else {
-      const role = ADMIN_EMAILS.includes(normalizedEmail) ? 'admin' : user.role
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          lastLogin: new Date(),
-          loginCount: { increment: 1 },
-          picture: picture || user.picture,
-          name: name || user.name,
-          role,
-        },
-      })
-    }
-
-    if (user.status === 'banned' || user.status === 'suspended') {
-      return res.status(403).json({ error: 'Account is not accessible. Contact support.' })
-    }
-
-    const token = generateToken(user.id)
-    const refreshToken = generateRefreshToken(user.id)
-
-    await prisma.session.create({
-      data: {
-        userId: user.id,
-        token: refreshToken,
-        userAgent: req.headers['user-agent'],
-        ip: req.ip,
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      },
-    })
-
-    await trackActivity(user.id, isNewUser ? 'register' : 'login', { method: 'firebase' })
-
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: IS_PRODUCTION,
-      sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000,
-      path: '/api/auth',
-    })
-
-    res.json({
-      success: true,
-      token,
-      user: { id: user.id, email: user.email, name: user.name, picture: user.picture, role: user.role },
-    })
-  } catch (error) {
-    console.error('Firebase auth error:', error.message)
-    res.status(401).json({ error: 'Invalid Firebase token' })
-  }
-})
-
-// ─── USER PROFILE ───
-
-app.get('/api/auth/me', authMiddleware, async (req, res) => {
-  const user = await prisma.user.findUnique({
-    where: { id: req.userId },
-    select: { id: true, email: true, name: true, picture: true, role: true, status: true, createdAt: true },
-  })
-  res.json({ user })
-})
-
-// ─── TODO ROUTES ───
-
-app.get('/api/todos', authMiddleware, async (req, res) => {
-  try {
-    const todos = await prisma.todo.findMany({
-      where: { userId: req.userId },
-      orderBy: { sortOrder: 'asc' },
-    })
-
-    const parsed = todos.map(t => ({
-      ...t,
-      tags: JSON.parse(t.tags || '[]'),
-      subtasks: JSON.parse(t.subtasks || '[]'),
-      attachments: JSON.parse(t.attachments || '[]'),
-      blockedBy: JSON.parse(t.blockedBy || '[]'),
-    }))
-
-    res.json({ todos: parsed })
-  } catch (err) {
-    console.error('Fetch todos error:', err)
-    res.status(500).json({ error: 'Failed to fetch todos' })
-  }
-})
-
-app.post('/api/todos', authMiddleware, async (req, res) => {
-  try {
-    const { text, category, priority, dueDate, notes, tags, subtasks, recurrence, reminderAt, attachments, blockedBy } = req.body
-
-    if (!text || !text.trim()) {
-      return res.status(400).json({ error: 'Todo text is required' })
-    }
-
-    if (text.trim().length > 5000) {
-      return res.status(400).json({ error: 'Todo text must be under 5000 characters' })
-    }
-
-    // Validate and sanitize attachments
-    if (attachments && Array.isArray(attachments)) {
-      for (const att of attachments) {
-        if (!validateAttachment(att)) {
-          return res.status(400).json({ error: 'Invalid attachment: check file type (max 5MB, images/PDF/text only)' })
-        }
-      }
-    }
-
-    const maxOrder = await prisma.todo.aggregate({ where: { userId: req.userId }, _max: { sortOrder: true } })
-
-    const todo = await prisma.todo.create({
-      data: {
-        text: sanitizeInput(text.trim()),
-        category: validateCategory(category) ? category : 'Personal',
-        priority: validatePriority(priority) ? priority : 'Medium',
-        dueDate: dueDate || null,
-        notes: sanitizeInput(notes || ''),
-        tags: JSON.stringify((tags || []).map(t => typeof t === 'string' ? sanitizeInput(t) : t)),
-        subtasks: JSON.stringify(subtasks || []),
-        recurrence: validateRecurrence(recurrence) ? recurrence : 'none',
-        reminderAt: reminderAt || 'none',
-        attachments: JSON.stringify(attachments || []),
-        blockedBy: JSON.stringify(blockedBy || []),
-        sortOrder: (maxOrder._max.sortOrder || 0) + 1,
-        userId: req.userId,
-      },
-    })
-
-    await trackActivity(req.userId, 'todo_created', { todoId: todo.id })
-
-    res.json({
-      todo: {
-        ...todo,
-        tags: JSON.parse(todo.tags),
-        subtasks: JSON.parse(todo.subtasks),
-        attachments: JSON.parse(todo.attachments),
-        blockedBy: JSON.parse(todo.blockedBy),
-      },
-    })
-  } catch (err) {
-    console.error('Create todo error:', err)
-    res.status(500).json({ error: 'Failed to create todo' })
-  }
-})
-
-app.put('/api/todos/:id', authMiddleware, async (req, res) => {
-  try {
-    const existing = await prisma.todo.findFirst({ where: { id: req.params.id, userId: req.userId } })
-    if (!existing) return res.status(404).json({ error: 'Todo not found' })
-
-    const data = {}
-    if (req.body.text !== undefined) data.text = sanitizeInput(req.body.text)
-    if (req.body.completed !== undefined) data.completed = req.body.completed
-    if (req.body.category !== undefined) data.category = validateCategory(req.body.category) ? req.body.category : existing.category
-    if (req.body.priority !== undefined) data.priority = validatePriority(req.body.priority) ? req.body.priority : existing.priority
-    if (req.body.dueDate !== undefined) data.dueDate = req.body.dueDate
-    if (req.body.notes !== undefined) data.notes = sanitizeInput(req.body.notes)
-    if (req.body.tags !== undefined) data.tags = JSON.stringify((req.body.tags || []).map(t => typeof t === 'string' ? sanitizeInput(t) : t))
-    if (req.body.subtasks !== undefined) data.subtasks = JSON.stringify(req.body.subtasks)
-    if (req.body.recurrence !== undefined) data.recurrence = validateRecurrence(req.body.recurrence) ? req.body.recurrence : existing.recurrence
-    if (req.body.reminderAt !== undefined) data.reminderAt = req.body.reminderAt
-    if (req.body.attachments !== undefined) {
-      // Validate attachments
-      if (Array.isArray(req.body.attachments)) {
-        for (const att of req.body.attachments) {
-          if (!validateAttachment(att)) {
-            return res.status(400).json({ error: 'Invalid attachment: check file type (max 5MB, images/PDF/text only)' })
-          }
-        }
-      }
-      data.attachments = JSON.stringify(req.body.attachments)
-    }
-    if (req.body.blockedBy !== undefined) data.blockedBy = JSON.stringify(req.body.blockedBy)
-    if (req.body.sortOrder !== undefined) data.sortOrder = req.body.sortOrder
-
-    const todo = await prisma.todo.update({ where: { id: req.params.id }, data })
-
-    if (req.body.completed !== undefined) {
-      await trackActivity(req.userId, req.body.completed ? 'todo_completed' : 'todo_uncompleted', { todoId: todo.id })
-    }
-
-    res.json({
-      todo: {
-        ...todo,
-        tags: JSON.parse(todo.tags),
-        subtasks: JSON.parse(todo.subtasks),
-        attachments: JSON.parse(todo.attachments),
-        blockedBy: JSON.parse(todo.blockedBy),
-      },
-    })
-  } catch (err) {
-    console.error('Update todo error:', err)
-    res.status(500).json({ error: 'Failed to update todo' })
-  }
-})
-
-app.put('/api/todos', authMiddleware, async (req, res) => {
-  try {
-    const { todos } = req.body
-    if (!Array.isArray(todos)) return res.status(400).json({ error: 'Todos array required' })
-
-    await prisma.$transaction(async (tx) => {
-      await tx.todo.deleteMany({ where: { userId: req.userId } })
-
-      if (todos.length > 0) {
-        await tx.todo.createMany({
-          data: todos.map((t, i) => ({
-            id: t.id,
-            text: sanitizeInput(t.text || ''),
-            completed: t.completed,
-            category: validateCategory(t.category) ? t.category : 'Other',
-            priority: validatePriority(t.priority) ? t.priority : 'Medium',
-            dueDate: t.dueDate || null,
-            notes: sanitizeInput(t.notes || ''),
-            tags: JSON.stringify((t.tags || []).map(tag => typeof tag === 'string' ? sanitizeInput(tag) : tag)),
-            subtasks: JSON.stringify(t.subtasks || []),
-            recurrence: validateRecurrence(t.recurrence) ? t.recurrence : 'none',
-            reminderAt: t.reminderAt || 'none',
-            attachments: JSON.stringify(t.attachments || []),
-            blockedBy: JSON.stringify(t.blockedBy || []),
-            sortOrder: t.sortOrder ?? i,
-            userId: req.userId,
-            createdAt: t.createdAt ? new Date(t.createdAt) : new Date(),
-          })),
-        })
-      }
-    })
-
-    res.json({ success: true, count: todos.length })
-  } catch (err) {
-    console.error('Bulk update todos error:', err)
-    res.status(500).json({ error: 'Failed to sync todos' })
-  }
-})
-
-app.delete('/api/todos/:id', authMiddleware, async (req, res) => {
-  try {
-    const existing = await prisma.todo.findFirst({ where: { id: req.params.id, userId: req.userId } })
-    if (!existing) return res.status(404).json({ error: 'Todo not found' })
-
-    await prisma.todo.delete({ where: { id: req.params.id } })
-    await trackActivity(req.userId, 'todo_deleted', { todoId: req.params.id })
-
-    res.json({ success: true })
-  } catch (err) {
-    console.error('Delete todo error:', err)
-    res.status(500).json({ error: 'Failed to delete todo' })
-  }
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
 // ─── ADMIN ROUTES ───
 
-app.get('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
+app.get('/api/admin/users', authLimiter, authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const users = await prisma.user.findMany({
-      include: {
-        _count: { select: { todos: true, activities: true, sessions: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
-
-    const result = users.map(u => ({
-      id: u.id,
-      email: u.email,
-      name: u.name,
-      picture: u.picture,
-      role: u.role,
-      status: u.status,
-      createdAt: u.createdAt,
-      lastLogin: u.lastLogin,
-      loginCount: u.loginCount,
-      todoCount: u._count.todos,
-      activityCount: u._count.activities,
-      sessionCount: u._count.sessions,
+    const usersSnap = await db.collection('users').orderBy('createdAt', 'desc').get()
+    const result = await Promise.all(usersSnap.docs.map(async (d) => {
+      const u = d.data()
+      const [todoSnap, activitySnap] = await Promise.all([
+        db.collection('todos').where('userId', '==', d.id).get(),
+        db.collection('activities').where('userId', '==', d.id).get(),
+      ])
+      return {
+        id: d.id,
+        email: u.email,
+        name: u.name,
+        picture: u.picture,
+        role: u.role || 'user',
+        status: u.status || 'active',
+        createdAt: u.createdAt,
+        lastLogin: u.lastLogin,
+        loginCount: u.loginCount || 0,
+        todoCount: todoSnap.size,
+        activityCount: activitySnap.size,
+      }
     }))
-
     res.json({ users: result, total: result.length })
   } catch (err) {
     console.error('Admin users error:', err)
@@ -882,37 +175,31 @@ app.get('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) =>
   }
 })
 
-app.get('/api/admin/stats', authMiddleware, adminMiddleware, async (req, res) => {
+app.get('/api/admin/stats', authLimiter, authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const thisWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-    const thisMonth = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+    const thisWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const thisMonth = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
-    const [totalUsers, activeUsers, bannedUsers, newToday, newThisWeek, newThisMonth, recentLogins, totalTodos, completedTodos] = await Promise.all([
-      prisma.user.count(),
-      prisma.user.count({ where: { status: 'active' } }),
-      prisma.user.count({ where: { status: 'banned' } }),
-      prisma.user.count({ where: { createdAt: { gte: today } } }),
-      prisma.user.count({ where: { createdAt: { gte: thisWeek } } }),
-      prisma.user.count({ where: { createdAt: { gte: thisMonth } } }),
-      prisma.user.count({ where: { lastLogin: { gte: thisWeek } } }),
-      prisma.todo.count(),
-      prisma.todo.count({ where: { completed: true } }),
-    ])
+    const usersSnap = await db.collection('users').get()
+    const todosSnap = await db.collection('todos').get()
+
+    const users = usersSnap.docs.map(d => d.data())
+    const completedTodos = todosSnap.docs.filter(d => d.data().completed === true).length
 
     res.json({
       stats: {
-        totalUsers,
-        activeUsers,
-        bannedUsers,
-        newUsersToday: newToday,
-        newUsersThisWeek: newThisWeek,
-        newUsersThisMonth: newThisMonth,
-        recentLogins,
-        totalTodos,
+        totalUsers: users.length,
+        activeUsers: users.filter(u => (u.status || 'active') === 'active').length,
+        bannedUsers: users.filter(u => u.status === 'banned').length,
+        newUsersToday: users.filter(u => u.createdAt >= today).length,
+        newUsersThisWeek: users.filter(u => u.createdAt >= thisWeek).length,
+        newUsersThisMonth: users.filter(u => u.createdAt >= thisMonth).length,
+        recentLogins: users.filter(u => u.lastLogin && u.lastLogin >= thisWeek).length,
+        totalTodos: todosSnap.size,
         completedTodos,
-        activeTodos: totalTodos - completedTodos,
+        activeTodos: todosSnap.size - completedTodos,
       },
     })
   } catch (err) {
@@ -923,51 +210,30 @@ app.get('/api/admin/stats', authMiddleware, adminMiddleware, async (req, res) =>
 
 app.get('/api/admin/user/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.params.id },
-      include: {
-        todos: { orderBy: { createdAt: 'desc' } },
-        activities: { orderBy: { createdAt: 'desc' }, take: 50 },
-        sessions: { orderBy: { createdAt: 'desc' }, take: 20 },
-      },
-    })
+    const userSnap = await db.collection('users').doc(req.params.id).get()
+    if (!userSnap.exists) return res.status(404).json({ error: 'User not found' })
+    const u = userSnap.data()
 
-    if (!user) return res.status(404).json({ error: 'User not found' })
+    const [todosSnap, activitiesSnap] = await Promise.all([
+      db.collection('todos').where('userId', '==', req.params.id).get(),
+      db.collection('activities').where('userId', '==', req.params.id).get(),
+    ])
 
-    const parsedTodos = user.todos.map(t => ({
-      ...t,
-      tags: JSON.parse(t.tags || '[]'),
-      subtasks: JSON.parse(t.subtasks || '[]'),
-      attachments: JSON.parse(t.attachments || '[]'),
-      blockedBy: JSON.parse(t.blockedBy || '[]'),
-    }))
-
-    const parsedActivities = user.activities.map(a => ({
-      ...a,
-      details: JSON.parse(a.details || '{}'),
-    }))
+    const todos = todosSnap.docs.map(serializeTodo).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    const activities = activitiesSnap.docs
+      .map(d => ({ id: d.id, ...d.data(), details: parseJson(d.data().details, {}) }))
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 50)
 
     res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        picture: user.picture,
-        role: user.role,
-        status: user.status,
-        createdAt: user.createdAt,
-        lastLogin: user.lastLogin,
-        loginCount: user.loginCount,
-      },
-      todos: parsedTodos,
-      activities: parsedActivities,
-      sessions: user.sessions,
+      user: { id: userSnap.id, email: u.email, name: u.name, picture: u.picture, role: u.role || 'user', status: u.status || 'active', createdAt: u.createdAt, lastLogin: u.lastLogin, loginCount: u.loginCount || 0 },
+      todos,
+      activities,
       stats: {
-        totalTodos: user.todos.length,
-        completedTodos: user.todos.filter(t => t.completed).length,
-        totalLogins: user.loginCount,
-        sessionCount: user.sessions.length,
-        activityCount: user.activities.length,
+        totalTodos: todos.length,
+        completedTodos: todos.filter(t => t.completed).length,
+        totalLogins: u.loginCount || 0,
+        activityCount: activities.length,
       },
     })
   } catch (err) {
@@ -978,19 +244,18 @@ app.get('/api/admin/user/:id', authMiddleware, adminMiddleware, async (req, res)
 
 app.put('/api/admin/user/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.params.id } })
-    if (!user) return res.status(404).json({ error: 'User not found' })
+    const ref = db.collection('users').doc(req.params.id)
+    const snap = await ref.get()
+    if (!snap.exists) return res.status(404).json({ error: 'User not found' })
 
     const data = {}
     if (req.body.status) data.status = req.body.status
     if (req.body.role) data.role = req.body.role
     if (req.body.name) data.name = req.body.name
 
-    const updated = await prisma.user.update({ where: { id: req.params.id }, data })
-
+    await ref.update(data)
     await trackActivity(req.userId, 'admin_user_updated', { targetUserId: req.params.id, changes: Object.keys(data) })
-
-    res.json({ success: true, user: updated })
+    res.json({ success: true, user: { id: req.params.id, ...snap.data(), ...data } })
   } catch (err) {
     console.error('Admin update user error:', err)
     res.status(500).json({ error: 'Failed to update user' })
@@ -999,15 +264,19 @@ app.put('/api/admin/user/:id', authMiddleware, adminMiddleware, async (req, res)
 
 app.delete('/api/admin/user/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.params.id } })
-    if (!user) return res.status(404).json({ error: 'User not found' })
-
-    if (ADMIN_EMAILS.includes(user.email)) {
+    const snap = await db.collection('users').doc(req.params.id).get()
+    if (!snap.exists) return res.status(404).json({ error: 'User not found' })
+    if (ADMIN_EMAILS.includes((snap.data().email || '').toLowerCase())) {
       return res.status(403).json({ error: 'Cannot delete admin users' })
     }
 
-    await prisma.user.delete({ where: { id: req.params.id } })
+    const todosSnap = await db.collection('todos').where('userId', '==', req.params.id).get()
+    const wb = db.batch()
+    todosSnap.docs.forEach(d => wb.delete(d.ref))
+    wb.delete(snap.ref)
+    await wb.commit()
 
+    try { await admin.auth().deleteUser(req.params.id) } catch { /* already gone */ }
     res.json({ success: true, message: 'User deleted' })
   } catch (err) {
     console.error('Admin delete user error:', err)
@@ -1017,30 +286,19 @@ app.delete('/api/admin/user/:id', authMiddleware, adminMiddleware, async (req, r
 
 app.get('/api/admin/user/:id/todos', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const todos = await prisma.todo.findMany({
-      where: { userId: req.params.id },
-      orderBy: { createdAt: 'desc' },
-    })
-
-    const parsed = todos.map(t => ({
-      ...t,
-      tags: JSON.parse(t.tags || '[]'),
-      subtasks: JSON.parse(t.subtasks || '[]'),
-      attachments: JSON.parse(t.attachments || '[]'),
-      blockedBy: JSON.parse(t.blockedBy || '[]'),
-    }))
-
-    res.json({ todos: parsed, total: parsed.length })
+    const todosSnap = await db.collection('todos').where('userId', '==', req.params.id).get()
+    const todos = todosSnap.docs.map(serializeTodo).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    res.json({ todos, total: todos.length })
   } catch (err) {
-    console.error('Admin user todos error:', err)
     res.status(500).json({ error: 'Failed to fetch user todos' })
   }
 })
 
 app.put('/api/admin/user/:id/todo/:todoId', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const todo = await prisma.todo.findFirst({ where: { id: req.params.todoId, userId: req.params.id } })
-    if (!todo) return res.status(404).json({ error: 'Todo not found' })
+    const ref = db.collection('todos').doc(req.params.todoId)
+    const snap = await ref.get()
+    if (!snap.exists || snap.data().userId !== req.params.id) return res.status(404).json({ error: 'Todo not found' })
 
     const data = {}
     if (req.body.completed !== undefined) data.completed = req.body.completed
@@ -1048,199 +306,57 @@ app.put('/api/admin/user/:id/todo/:todoId', authMiddleware, adminMiddleware, asy
     if (req.body.priority !== undefined) data.priority = req.body.priority
     if (req.body.category !== undefined) data.category = req.body.category
 
-    const updated = await prisma.todo.update({ where: { id: req.params.todoId }, data })
-
-    res.json({
-      todo: {
-        ...updated,
-        tags: JSON.parse(updated.tags),
-        subtasks: JSON.parse(updated.subtasks),
-        attachments: JSON.parse(updated.attachments),
-        blockedBy: JSON.parse(updated.blockedBy),
-      },
-    })
+    await ref.update(data)
+    const updated = await ref.get()
+    res.json({ todo: serializeTodo(updated) })
   } catch (err) {
-    console.error('Admin update todo error:', err)
     res.status(500).json({ error: 'Failed to update todo' })
   }
 })
 
 app.delete('/api/admin/user/:id/todo/:todoId', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const todo = await prisma.todo.findFirst({ where: { id: req.params.todoId, userId: req.params.id } })
-    if (!todo) return res.status(404).json({ error: 'Todo not found' })
-
-    await prisma.todo.delete({ where: { id: req.params.todoId } })
-
+    const ref = db.collection('todos').doc(req.params.todoId)
+    const snap = await ref.get()
+    if (!snap.exists || snap.data().userId !== req.params.id) return res.status(404).json({ error: 'Todo not found' })
+    await ref.delete()
     res.json({ success: true })
   } catch (err) {
-    console.error('Admin delete todo error:', err)
     res.status(500).json({ error: 'Failed to delete todo' })
   }
 })
 
 app.get('/api/admin/activity', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const activities = await prisma.activity.findMany({
-      include: { user: { select: { id: true, name: true, email: true, picture: true } } },
-      orderBy: { createdAt: 'desc' },
-      take: 200,
-    })
-
-    const parsed = activities.map(a => ({
-      ...a,
-      details: JSON.parse(a.details || '{}'),
+    const activitiesSnap = await db.collection('activities').orderBy('createdAt', 'desc').limit(200).get()
+    const userCache = {}
+    const activities = await Promise.all(activitiesSnap.docs.map(async (d) => {
+      const a = d.data()
+      if (!userCache[a.userId]) {
+        const uSnap = await db.collection('users').doc(a.userId).get()
+        userCache[a.userId] = uSnap.exists ? uSnap.data() : null
+      }
+      const u = userCache[a.userId]
+      return {
+        id: d.id,
+        ...a,
+        details: parseJson(a.details, {}),
+        user: u ? { id: a.userId, name: u.name, email: u.email, picture: u.picture } : null,
+      }
     }))
-
-    res.json({ activities: parsed })
+    res.json({ activities })
   } catch (err) {
-    console.error('Admin activity error:', err)
     res.status(500).json({ error: 'Failed to fetch activity' })
   }
 })
 
-// ─── FEATURE FLAGS ───
-
-app.get('/api/features', async (req, res) => {
-  try {
-    const features = await prisma.featureFlag.findMany()
-    const result = {}
-    features.forEach(f => { result[f.key] = { enabled: f.enabled, name: f.name, description: f.description } })
-    res.json({ features: result })
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch features' })
-  }
-})
-
-app.put('/api/admin/features', authMiddleware, adminMiddleware, async (req, res) => {
-  try {
-    const { features } = req.body
-    if (!features || typeof features !== 'object') return res.status(400).json({ error: 'Features object required' })
-
-    for (const [key, feature] of Object.entries(features)) {
-      await prisma.featureFlag.upsert({
-        where: { key },
-        update: { enabled: feature.enabled, name: feature.name, description: feature.description || '' },
-        create: { key, enabled: feature.enabled, name: feature.name, description: feature.description || '' },
-      })
-    }
-
-    res.json({ success: true })
-  } catch (err) {
-    console.error('Update features error:', err)
-    res.status(500).json({ error: 'Failed to update features' })
-  }
-})
-
-// ─── EMAIL VERIFICATION (Registration & Admin) ───
-
-app.post('/api/send-code', authLimiter, async (req, res) => {
-  const { email, purpose } = req.body
-
-  // For admin verification, only allow admin emails
-  if (purpose === 'admin' && !ADMIN_EMAILS.includes(email)) {
-    return res.status(403).json({ error: 'Unauthorized email' })
-  }
-
-  // For registration, silently skip if email already registered (prevents enumeration)
-  if (purpose === 'register') {
-    const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } })
-    if (existing) {
-      return res.json({ success: true, message: 'If this email is not already registered, a verification code has been sent.' })
-    }
-  }
-
-  const code = generateCode()
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
-  await prisma.verificationCode.upsert({
-    where: { email },
-    update: { code, purpose, expiresAt },
-    create: { email, code, purpose, expiresAt },
-  })
-
-  try {
-    const subject = purpose === 'admin' ? 'Admin Portal Verification Code' : 'Email Verification Code'
-    await transporter.sendMail({
-      from: process.env.GMAIL_USER || '',
-      to: email,
-      subject,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 400px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #4f46e5;">Verification Code</h2>
-          <p>Your verification code is:</p>
-          <div style="background: #f3f4f6; padding: 20px; text-align: center; border-radius: 10px; margin: 20px 0;">
-            <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #4f46e5;">${code}</span>
-          </div>
-          <p style="color: #6b7280; font-size: 14px;">This code expires in 5 minutes.</p>
-        </div>
-      `,
-    })
-    res.json({ success: true, message: 'Verification code sent' })
-  } catch (error) {
-    console.error('Email error:', error)
-    res.status(500).json({ error: 'Failed to send email' })
-  }
-})
-
-app.post('/api/verify-code', authLimiter, async (req, res) => {
-  const { email, code, purpose } = req.body
-  const stored = await prisma.verificationCode.findUnique({ where: { email } })
-
-  if (!stored) return res.status(400).json({ error: 'No verification code found' })
-  if (new Date() > stored.expiresAt) { await prisma.verificationCode.delete({ where: { email } }); return res.status(400).json({ error: 'Code expired' }) }
-  if (stored.code !== code) return res.status(400).json({ error: 'Invalid code' })
-  if (purpose && stored.purpose !== purpose) return res.status(400).json({ error: 'Invalid code purpose' })
-
-  await prisma.verificationCode.delete({ where: { email } })
-  res.json({ success: true, verified: true })
-})
-
-// ─── ADMIN PANEL AUTH ───
-
-app.post('/api/admin/auth', authMiddleware, authLimiter, async (req, res) => {
-  const { password } = req.body
-  if (!password) return res.status(400).json({ error: 'Password required' })
-
-  if (req.user.role !== 'admin' && !ADMIN_EMAILS.includes(req.user.email)) {
-    return res.status(403).json({ error: 'Admin access required' })
-  }
-
-  if (!ADMIN_PANEL_PASSWORD_HASH) {
-    return res.status(500).json({ error: 'Admin panel password not configured' })
-  }
-
-  const isValid = await bcrypt.compare(password, ADMIN_PANEL_PASSWORD_HASH)
-  if (!isValid) {
-    return res.status(401).json({ error: 'Invalid admin password' })
-  }
-
-  res.json({ success: true, verified: true })
-})
-
-// ─── HEALTH ───
-
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() })
-})
-
-// ─── SERVE FRONTEND (Production, non-Vercel) ───
+// ─── FRONTEND (Production, non-Vercel) ───
 
 if (IS_PRODUCTION && !process.env.VERCEL) {
   const distPath = join(__dirname, '..', 'dist')
-
-  app.use(express.static(distPath, {
-    maxAge: '1y',
-    etag: true,
-    lastModified: true,
-    setHeaders(res, filePath) {
-      if (filePath.endsWith('.html')) {
-        res.setHeader('Cache-Control', 'no-cache')
-      }
-    },
-  }))
-
-  app.get('*', (req, res) => {
-    res.setHeader('Cache-Control', 'no-cache')
+  app.use(express.static(distPath, { maxAge: '1y', etag: true, lastModified: true }))
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next()
     res.sendFile(join(distPath, 'index.html'))
   })
 } else {
@@ -1249,128 +365,8 @@ if (IS_PRODUCTION && !process.env.VERCEL) {
   })
 }
 
-// ─── STARTUP ───
-
-async function seedDefaultAdmin() {
-  for (const email of ADMIN_EMAILS) {
-    const normalizedEmail = email.trim().toLowerCase()
-    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } })
-
-    if (!existing) {
-      // Create new admin with configured or generated password
-      const defaultPassword = process.env.ADMIN_DEFAULT_PASSWORD || crypto.randomBytes(16).toString('hex')
-      const hashed = await bcrypt.hash(defaultPassword, 12)
-      await prisma.user.create({
-        data: {
-          email: normalizedEmail,
-          name: 'Admin',
-          password: hashed,
-          role: 'admin',
-        },
-      })
-      console.log(`✅ Admin user created: ${normalizedEmail}`)
-
-      if (process.env.ADMIN_DEFAULT_PASSWORD) {
-        console.log(`   Password set from ADMIN_DEFAULT_PASSWORD env var`)
-      } else if (IS_PRODUCTION) {
-        console.log(`   ⚠  GENERATED PASSWORD: ${defaultPassword}`)
-        console.log(`   Set ADMIN_DEFAULT_PASSWORD env var to control the password.`)
-      } else {
-        const fs = await import('fs')
-        const pwFile = join(__dirname, '.admin-initial-password')
-        fs.writeFileSync(pwFile, `Admin: ${normalizedEmail}\nPassword: ${defaultPassword}\n\nDelete this file after reading!\n`)
-        console.log(`   Generated password written to: ${pwFile}`)
-      }
-    } else if (!existing.password && process.env.ADMIN_DEFAULT_PASSWORD) {
-      // User exists (e.g. Google OAuth) but has no password — set one so email login works
-      const hashed = await bcrypt.hash(process.env.ADMIN_DEFAULT_PASSWORD, 12)
-      await prisma.user.update({ where: { id: existing.id }, data: { password: hashed } })
-      console.log(`✅ Password set for existing admin: ${normalizedEmail}`)
-    }
-  }
-}
-
-async function seedDefaultFeatures() {
-  const defaults = {
-    subtasks: { name: 'Subtasks', description: 'Add subtasks to your todos' },
-    tags: { name: 'Tags', description: 'Add tags to organize todos' },
-    notes: { name: 'Notes', description: 'Add markdown notes to todos' },
-    recurrence: { name: 'Recurring Tasks', description: 'Set up recurring tasks' },
-    reminders: { name: 'Reminders', description: 'Get browser notifications' },
-    calendar: { name: 'Calendar View', description: 'View todos in calendar' },
-    dashboard: { name: 'Dashboard', description: 'View statistics and charts' },
-    importExport: { name: 'Import/Export', description: 'Import and export todos' },
-    bulkActions: { name: 'Bulk Actions', description: 'Select and manage multiple todos' },
-    dragDrop: { name: 'Drag & Drop', description: 'Reorder todos by dragging' },
-    trash: { name: 'Trash', description: 'Recover deleted todos for 30 days' },
-    pomodoro: { name: 'Pomodoro Timer', description: 'Focus timer with work/break cycles' },
-    attachments: { name: 'Attachments', description: 'Attach files to todos' },
-    dependencies: { name: 'Dependencies', description: 'Set task blockers' },
-    i18n: { name: 'Multi-language', description: 'Support for multiple languages' },
-    reviews: { name: 'Reviews', description: 'Weekly and monthly review prompts' },
-    tagFilter: { name: 'Tag Filter', description: 'Filter todos by tags' },
-    recurringView: { name: 'Recurring View', description: 'View all recurring tasks' },
-  }
-
-  for (const [key, feature] of Object.entries(defaults)) {
-    await prisma.featureFlag.upsert({
-      where: { key },
-      update: {},
-      create: { key, name: feature.name, description: feature.description, enabled: true },
-    })
-  }
-}
-
-async function cleanupExpiredSessions() {
-  try {
-    await prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } })
-  } catch { /* ignore */ }
-}
-
-async function cleanupVerificationCodes() {
-  try {
-    await prisma.verificationCode.deleteMany({ where: { expiresAt: { lt: new Date() } } })
-  } catch { /* ignore */ }
-}
-
-// Standalone mode (local dev)
 if (!process.env.VERCEL) {
-  async function start() {
-    try {
-      await prisma.$connect()
-      console.log('Database connected')
-
-      if (!ADMIN_EMAILS.length) console.warn('⚠  ADMIN_EMAILS not set — no admin emails configured')
-
-      await seedDefaultAdmin()
-      await seedDefaultFeatures()
-      await cleanupExpiredSessions()
-
-      _initialized = true
-
-      setInterval(cleanupExpiredSessions, 60 * 60 * 1000)
-      setInterval(cleanupVerificationCodes, 5 * 60 * 1000)
-
-      app.listen(PORT, () => {
-        console.log(`Server running on http://localhost:${PORT}`)
-      })
-    } catch (err) {
-      console.error('Failed to start server:', err)
-      process.exit(1)
-    }
-  }
-
-  start()
+  app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`))
 }
 
 export default app
-
-process.on('SIGTERM', async () => {
-  await prisma.$disconnect()
-  process.exit(0)
-})
-
-process.on('SIGINT', async () => {
-  await prisma.$disconnect()
-  process.exit(0)
-})

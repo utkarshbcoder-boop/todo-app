@@ -8,30 +8,42 @@ import {
   updateProfile,
   onAuthStateChanged,
 } from 'firebase/auth'
-import { auth, googleProvider } from '../firebase'
+import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { auth, db, googleProvider } from '../firebase'
 
 const API_URL = import.meta.env.VITE_API_URL || '/api'
 
-let _accessToken = null
-let _refreshPromise = null
+async function getIdToken() {
+  return auth.currentUser ? auth.currentUser.getIdToken() : null
+}
 
 async function safeJson(res) {
   const text = await res.text()
   if (!text) return {}
-  try { return JSON.parse(text) } catch { return { error: `Server error (HTTP ${res.status}): Server might be offline or unreachable.` } }
+  try { return JSON.parse(text) } catch { return { error: `Server error (HTTP ${res.status})` } }
 }
 
-async function exchangeFirebaseToken(idToken) {
-  const res = await fetch(`${API_URL}/auth/firebase`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({ idToken }),
-  })
-  const data = await safeJson(res)
-  if (!res.ok) throw new Error(data.error || 'Authentication failed')
-  _accessToken = data.token
-  return data.user
+async function ensureUserDoc(fbUser) {
+  const ref = doc(db, 'users', fbUser.uid)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) {
+    const data = {
+      id: fbUser.uid,
+      email: (fbUser.email || '').toLowerCase(),
+      name: fbUser.displayName || (fbUser.email || '').split('@')[0],
+      picture: fbUser.photoURL || null,
+      role: 'user',
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
+      loginCount: 1,
+    }
+    await setDoc(ref, data)
+    return data
+  }
+  const data = snap.data()
+  await setDoc(ref, { lastLogin: new Date().toISOString(), loginCount: (data.loginCount || 0) + 1, picture: fbUser.photoURL || data.picture || null, name: fbUser.displayName || data.name }, { merge: true })
+  return { ...data, id: fbUser.uid, email: data.email || fbUser.email }
 }
 
 export const useUserStore = create(
@@ -46,32 +58,18 @@ export const useUserStore = create(
       initialize: async () => {
         const state = get()
         if (state._initialized) return
-        try {
-          const fbUser = await new Promise((resolve) => {
-            const unsub = onAuthStateChanged(auth, (u) => { unsub(); resolve(u) })
-          })
+        onAuthStateChanged(auth, async (fbUser) => {
           if (fbUser) {
-            const idToken = await fbUser.getIdToken()
-            const user = await exchangeFirebaseToken(idToken)
-            set({ user, isAuthenticated: true, isLoading: false, error: null, _initialized: true })
-          } else {
-            const res = await fetch(`${API_URL}/auth/refresh`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({}),
-            })
-            const data = await safeJson(res)
-            if (res.ok && data.token) {
-              _accessToken = data.token
-            } else {
-              _accessToken = null
-              set({ user: null, isAuthenticated: false })
+            try {
+              const user = await ensureUserDoc(fbUser)
+              set({ user, isAuthenticated: true, error: null, _initialized: true })
+            } catch (err) {
+              set({ error: err.message, _initialized: true })
             }
+          } else {
+            set({ user: null, isAuthenticated: false, _initialized: true })
           }
-        } catch {
-          // Network error — keep state for offline use
-        }
+        })
         set({ _initialized: true })
       },
 
@@ -79,8 +77,7 @@ export const useUserStore = create(
 
       loginStart: () => set({ isLoading: true, error: null }),
 
-      loginSuccess: (user, token) => {
-        _accessToken = token
+      loginSuccess: (user) => {
         set({ user, isAuthenticated: true, isLoading: false, error: null, _initialized: true })
       },
 
@@ -88,31 +85,12 @@ export const useUserStore = create(
 
       clearError: () => set({ error: null }),
 
-      logout: async () => {
-        try {
-          await fetch(`${API_URL}/auth/logout`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${_accessToken || ''}` },
-            credentials: 'include',
-          }).catch(() => {})
-          await signOut(auth).catch(() => {})
-        } finally {
-          _accessToken = null
-          set({ user: null, isAuthenticated: false })
-        }
-      },
-
-      updateUser: (updates) => set((state) => ({
-        user: state.user ? { ...state.user, ...updates } : null,
-      })),
-
       register: async (name, email, password) => {
         set({ isLoading: true, error: null })
         try {
           const cred = await createUserWithEmailAndPassword(auth, email, password)
           await updateProfile(cred.user, { displayName: name })
-          const idToken = await cred.user.getIdToken()
-          const user = await exchangeFirebaseToken(idToken)
+          const user = await ensureUserDoc({ ...cred.user, displayName: name })
           set({ user: { ...user, name: user.name || name }, isAuthenticated: true, isLoading: false, error: null, _initialized: true })
           return true
         } catch (err) {
@@ -125,8 +103,7 @@ export const useUserStore = create(
         set({ isLoading: true, error: null })
         try {
           const cred = await signInWithEmailAndPassword(auth, email, password)
-          const idToken = await cred.user.getIdToken()
-          const user = await exchangeFirebaseToken(idToken)
+          const user = await ensureUserDoc(cred.user)
           set({ user, isAuthenticated: true, isLoading: false, error: null, _initialized: true })
           return user
         } catch {
@@ -139,8 +116,7 @@ export const useUserStore = create(
         set({ isLoading: true, error: null })
         try {
           const cred = await signInWithPopup(auth, googleProvider)
-          const idToken = await cred.user.getIdToken()
-          const user = await exchangeFirebaseToken(idToken)
+          const user = await ensureUserDoc(cred.user)
           set({ user, isAuthenticated: true, isLoading: false, error: null, _initialized: true })
           return true
         } catch (err) {
@@ -149,73 +125,46 @@ export const useUserStore = create(
         }
       },
 
-      refreshAccessToken: async () => {
-        if (_refreshPromise) return _refreshPromise
-        _refreshPromise = (async () => {
-          try {
-            const res = await fetch(`${API_URL}/auth/refresh`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include', // Send httpOnly cookies
-              body: JSON.stringify({}),
-            })
-            const data = await safeJson(res)
-            if (!res.ok) throw new Error('Refresh failed')
-            _accessToken = data.token
-            return true
-          } catch {
-            _accessToken = null
-            set({ user: null, isAuthenticated: false })
-            return false
-          } finally {
-            _refreshPromise = null
-          }
-        })()
-        return _refreshPromise
+      logout: async () => {
+        try {
+          await signOut(auth)
+        } finally {
+          set({ user: null, isAuthenticated: false })
+        }
       },
 
+      updateUser: (updates) => set((state) => ({
+        user: state.user ? { ...state.user, ...updates } : null,
+      })),
+
+      refreshAccessToken: async () => true,
+
       fetchWithAuth: async (url, options = {}) => {
+        const token = await getIdToken()
         const headers = { ...options.headers }
-
-        if (_accessToken) headers.Authorization = `Bearer ${_accessToken}`
-
-        let res = await fetch(`${API_URL}${url}`, { ...options, headers, credentials: 'include' })
-
-        if (res.status === 401) {
-          const refreshed = await get().refreshAccessToken()
-          if (refreshed && _accessToken) {
-            headers.Authorization = `Bearer ${_accessToken}`
-            res = await fetch(`${API_URL}${url}`, { ...options, headers, credentials: 'include' })
-          } else {
-            return { ok: false, status: 401, data: null, error: 'Session expired' }
-          }
-        }
-
+        if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
+        if (token) headers.Authorization = `Bearer ${token}`
         try {
+          const res = await fetch(`${API_URL}${url}`, { ...options, headers })
           const data = await safeJson(res)
           return { ok: res.ok, status: res.status, data, error: res.ok ? null : (data.error || 'Request failed') }
         } catch {
-          return { ok: false, status: res.status, data: null, error: 'Network error' }
+          return { ok: false, status: 0, data: null, error: 'Network error' }
         }
       },
 
-      logoutWithoutToken: () => {
-        _accessToken = null
-        set({ user: null, isAuthenticated: false })
-      },
+      logoutWithoutToken: () => set({ user: null, isAuthenticated: false }),
 
-      getToken: () => _accessToken,
+      getToken: async () => getIdToken(),
     }),
     {
       name: 'todo-user-store',
       partialize: (state) => ({
         user: state.user,
         isAuthenticated: state.isAuthenticated,
-        // NOTE: refreshToken is NO LONGER stored in localStorage
-        // It's now handled exclusively via httpOnly cookies
       }),
     }
   )
 )
 
-export function getAccessToken() { return _accessToken }
+export async function getAccessToken() { return getIdToken() }
