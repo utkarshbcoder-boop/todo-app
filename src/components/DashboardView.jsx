@@ -87,12 +87,12 @@ export default function DashboardView() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Total', value: stats.total, color: 'text-indigo-600 dark:text-indigo-400' },
+          { label: 'Total', value: stats.total, color: 'text-violet-600 dark:text-violet-300' },
           { label: 'Active', value: stats.active, color: 'text-blue-600 dark:text-blue-400' },
           { label: 'Completed', value: stats.completed, color: 'text-emerald-600 dark:text-emerald-400' },
           { label: 'Overdue', value: stats.overdue, color: 'text-red-600 dark:text-red-400' },
         ].map((s) => (
-          <div key={s.label} className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl border border-gray-100 dark:border-gray-700 p-4 text-center">
+          <div key={s.label} className="glass-card rounded-xl p-4 text-center">
             <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
             <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">{s.label}</div>
           </div>
@@ -101,25 +101,25 @@ export default function DashboardView() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Status pie */}
-        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700 p-5">
+        <div className="glass-card rounded-2xl p-5">
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">Status</h3>
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
               <Pie data={statusData} cx="50%" cy="50%" innerRadius={50} outerRadius={75} paddingAngle={4} dataKey="value">
-                <Cell fill="#6366f1" />
+                <Cell fill="#8b5cf6" />
                 <Cell fill="#10b981" />
               </Pie>
               <Tooltip content={<CustomTooltip />} />
             </PieChart>
           </ResponsiveContainer>
           <div className="flex justify-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500" /> Active ({stats.active})</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-violet-500" /> Active ({stats.active})</span>
             <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Done ({stats.completed})</span>
           </div>
         </div>
 
         {/* Category breakdown */}
-        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700 p-5">
+        <div className="glass-card rounded-2xl p-5">
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">By Category</h3>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={categoryData} layout="vertical" margin={{ left: 10 }}>
@@ -136,7 +136,7 @@ export default function DashboardView() {
         </div>
 
         {/* Priority distribution */}
-        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700 p-5">
+        <div className="glass-card rounded-2xl p-5">
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">By Priority</h3>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={priorityData}>
@@ -153,7 +153,7 @@ export default function DashboardView() {
         </div>
 
         {/* Completion trend */}
-        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl border border-gray-100 dark:border-gray-700 p-5">
+        <div className="glass-card rounded-2xl p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">{trendDays}-Day Trend</h3>
             <div className="flex gap-1">
@@ -161,7 +161,7 @@ export default function DashboardView() {
                 <button key={days} onClick={() => setTrendDays(days)}
                   className={`px-2 py-0.5 text-[10px] font-medium rounded-md transition-all cursor-pointer ${
                     trendDays === days
-                      ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400'
+                      ? 'bg-violet-100 dark:bg-violet-900/40 text-violet-600 dark:text-violet-400'
                       : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
                   }`}>
                   {days}d
@@ -175,7 +175,7 @@ export default function DashboardView() {
               <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#9ca3af' }} />
               <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#9ca3af' }} />
               <Tooltip content={<CustomTooltip />} />
-              <Line type="monotone" dataKey="completions" stroke="#6366f1" strokeWidth={2} dot={{ fill: '#6366f1', r: 4 }} activeDot={{ r: 6 }} />
+              <Line type="monotone" dataKey="completions" stroke="#8b5cf6" strokeWidth={2} dot={{ fill: '#8b5cf6', r: 4 }} activeDot={{ r: 6 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>

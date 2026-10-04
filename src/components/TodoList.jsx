@@ -209,11 +209,11 @@ export default function TodoList({ onAddTodoWithDate, onDeleteWithUndo }) {
               <div className="space-y-3" role="list" aria-label="Todo list">
                 <AnimatePresence mode="popLayout">
                   {filtered.length === 0 ? (
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-center py-16">
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="empty-state rounded-2xl text-center py-16 px-6">
                       <div className="text-5xl mb-4" aria-hidden="true">
                         {viewTab === 'completed' ? '🎯' : viewTab === 'active' ? '✨' : viewTab === 'overdue' ? '⏰' : viewTab === 'today' ? '📅' : '📝'}
                       </div>
-                      <p className="text-gray-400 dark:text-gray-500 text-lg font-medium">
+                      <p className="text-gray-500 dark:text-gray-400 text-lg font-medium">
                         {viewTab === 'completed' ? 'No completed todos yet' : viewTab === 'active' ? 'All done! Great work!' : viewTab === 'overdue' ? 'No overdue todos!' : viewTab === 'today' ? 'Nothing due today' : 'No todos yet. Add one above!'}
                       </p>
                     </motion.div>
@@ -228,11 +228,11 @@ export default function TodoList({ onAddTodoWithDate, onDeleteWithUndo }) {
             <div className="space-y-3" role="list" aria-label="Todo list">
               <AnimatePresence mode="popLayout">
                 {filtered.length === 0 ? (
-                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-center py-16">
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="empty-state rounded-2xl text-center py-16 px-6">
                     <div className="text-5xl mb-4" aria-hidden="true">
                       {viewTab === 'completed' ? '🎯' : viewTab === 'active' ? '✨' : viewTab === 'overdue' ? '⏰' : viewTab === 'today' ? '📅' : '📝'}
                     </div>
-                    <p className="text-gray-400 dark:text-gray-500 text-lg font-medium">
+                    <p className="text-gray-500 dark:text-gray-400 text-lg font-medium">
                       {viewTab === 'completed' ? 'No completed todos yet' : viewTab === 'active' ? 'All done! Great work!' : viewTab === 'overdue' ? 'No overdue todos!' : viewTab === 'today' ? 'Nothing due today' : 'No todos yet. Add one above!'}
                     </p>
                   </motion.div>

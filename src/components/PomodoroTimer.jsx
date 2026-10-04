@@ -35,13 +35,13 @@ export default function PomodoroTimer() {
       <AnimatePresence>
         {expanded && (
           <motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.9 }}
-            className="mb-2 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 p-4 w-56">
+            className="mb-2 glass-elevated rounded-2xl p-4 w-56">
             <div className="text-center">
               <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
                 {isWork ? t('work') : t('breakTime')}
               </p>
               {selectedTodo && (
-                <p className="text-xs text-indigo-600 dark:text-indigo-400 truncate mb-1" title={selectedTodo.text}>
+                <p className="text-xs text-violet-600 dark:text-violet-300 truncate mb-1" title={selectedTodo.text}>
                   {selectedTodo.text.slice(0, 30)}{selectedTodo.text.length > 30 ? '...' : ''}
                 </p>
               )}
@@ -49,12 +49,12 @@ export default function PomodoroTimer() {
                 {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
               </p>
               <div className="mt-2 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                <motion.div className={`h-full rounded-full ${isWork ? 'bg-indigo-500' : 'bg-emerald-500'}`}
+                <motion.div className={`h-full rounded-full ${isWork ? 'bg-violet-500' : 'bg-emerald-500'}`}
                   style={{ width: `${progress}%` }} transition={{ duration: 0.5 }} />
               </div>
               {!pomodoro.running && activeTodos.length > 0 && (
                 <select value={selectedTodoId || ''} onChange={(e) => setSelectedTodoId(e.target.value || null)}
-                  className="w-full mt-2 px-2 py-1.5 text-xs text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer">
+                  className="w-full mt-2 px-2 py-1.5 text-xs text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-violet-500 cursor-pointer">
                   <option value="">No specific task</option>
                   {activeTodos.slice(0, 10).map((todo) => (
                     <option key={todo.id} value={todo.id}>{todo.text.slice(0, 35)}{todo.text.length > 35 ? '...' : ''}</option>
@@ -64,7 +64,7 @@ export default function PomodoroTimer() {
               <div className="flex gap-2 mt-3">
                 {!pomodoro.running ? (
                   <button onClick={pomodoro.todoId ? resumePomodoro : () => startPomodoro(selectedTodoId)}
-                    className="flex-1 py-1.5 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all cursor-pointer">
+                    className="flex-1 py-1.5 text-xs font-medium bg-violet-600 hover:bg-violet-700 text-white rounded-lg transition-all cursor-pointer">
                     {t('start')}
                   </button>
                 ) : (
@@ -85,8 +85,8 @@ export default function PomodoroTimer() {
       <motion.button onClick={() => setExpanded(!expanded)} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
         className={`w-14 h-14 rounded-full shadow-lg flex items-center justify-center cursor-pointer transition-colors ${
           pomodoro.running
-            ? isWork ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-500 hover:bg-emerald-600'
-            : 'bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+            ? isWork ? 'bg-violet-600 hover:bg-violet-700 shadow-violet-500/40' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/40'
+            : 'glass-elevated hover:bg-white/80 dark:hover:bg-gray-700/80'
         }`}>
         <svg className={`w-6 h-6 ${pomodoro.running ? 'text-white' : 'text-gray-600 dark:text-gray-300'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />

@@ -1,10 +1,23 @@
 function GradientMesh() { return <div className="gradient-mesh" /> }
 function NoiseOverlay() { return <div className="noise-overlay" /> }
 
+const AURORA_WAVES = [
+  { w: 500, h: 300, left: '-5%', top: '10%', bg: 'linear-gradient(135deg, rgba(139,92,246,0.35), rgba(217,70,239,0.2))', dur: '18s', delay: '0s' },
+  { w: 400, h: 400, left: '60%', top: '5%', bg: 'linear-gradient(135deg, rgba(59,130,246,0.3), rgba(45,212,191,0.15))', dur: '22s', delay: '-6s' },
+  { w: 450, h: 350, left: '30%', top: '55%', bg: 'linear-gradient(135deg, rgba(217,70,239,0.25), rgba(236,72,153,0.15))', dur: '20s', delay: '-12s' },
+]
+function AuroraWaves() {
+  return AURORA_WAVES.map((w, i) => (
+    <div key={i} className="aurora-wave" style={{ width: w.w, height: w.h, left: w.left, top: w.top, background: w.bg, animationDuration: w.dur, animationDelay: w.delay }} />
+  ))
+}
+
 const ORBS = [
-  { w: 180, h: 180, left: '8%',  top: '15%', bg: 'linear-gradient(135deg, rgba(99,102,241,0.25), rgba(168,85,247,0.15))', dur: '14s', delay: '0s' },
-  { w: 120, h: 120, left: '70%', top: '10%', bg: 'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(34,211,238,0.15))', dur: '18s', delay: '-4s' },
-  { w: 220, h: 220, left: '55%', top: '60%', bg: 'linear-gradient(135deg, rgba(236,72,153,0.15), rgba(168,85,247,0.12))', dur: '22s', delay: '-8s' },
+  { w: 180, h: 180, left: '8%',  top: '15%', bg: 'linear-gradient(135deg, rgba(139,92,246,0.4), rgba(217,70,239,0.25))', dur: '14s', delay: '0s' },
+  { w: 120, h: 120, left: '70%', top: '10%', bg: 'linear-gradient(135deg, rgba(59,130,246,0.35), rgba(45,212,191,0.2))', dur: '18s', delay: '-4s' },
+  { w: 220, h: 220, left: '55%', top: '60%', bg: 'linear-gradient(135deg, rgba(217,70,239,0.3), rgba(139,92,246,0.2))', dur: '22s', delay: '-8s' },
+  { w: 90,  h: 90,  left: '85%', top: '40%', bg: 'linear-gradient(135deg, rgba(45,212,191,0.3), rgba(59,130,246,0.2))', dur: '16s', delay: '-2s' },
+  { w: 70,  h: 70,  left: '20%', top: '70%', bg: 'linear-gradient(135deg, rgba(236,72,153,0.3), rgba(217,70,239,0.2))', dur: '19s', delay: '-10s' },
 ]
 function Orbs() {
   return ORBS.map((o, i) => (
@@ -61,6 +74,7 @@ export default function BackgroundScene() {
   return (
     <div className="bg-scene">
       <GradientMesh /><NoiseOverlay />
+      <AuroraWaves />
       <div className="scene-3d"><Cubes3D /><Spheres /></div>
       <Orbs /><Particles />
     </div>

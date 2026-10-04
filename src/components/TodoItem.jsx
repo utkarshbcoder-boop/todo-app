@@ -109,10 +109,11 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      className={`group todo-glass rounded-2xl p-4 ${
+      className={`group todo-glass rounded-2xl p-4 pl-5 ${
         isSelected ? 'border-indigo-400 dark:border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-800' : ''
       } ${todo.completed ? 'opacity-60' : ''}`}
     >
+      <div className={`priority-bar priority-bar-${todo.priority}`} aria-hidden="true" />
       <div className="flex items-start gap-3">
         {/* Drag handle */}
         <div className="mt-1 flex-shrink-0 cursor-grab active:cursor-grabbing text-gray-300 dark:text-gray-600 hover:text-gray-400 dark:hover:text-gray-500" title="Drag to reorder">
@@ -213,6 +214,12 @@ export default memo(function TodoItem({ todo, onToggle, onDelete, onUpdate }) {
               )}
               {subtasksEnabled && totalSubtasks > 0 && (
                 <div className="space-y-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="flex-1 subtask-progress">
+                      <div className="subtask-progress-fill" style={{ width: `${(completedSubtasks / totalSubtasks) * 100}%` }} />
+                    </div>
+                    <span className="text-[10px] font-semibold text-violet-500 dark:text-violet-300 tabular-nums">{completedSubtasks}/{totalSubtasks}</span>
+                  </div>
                   {todo.subtasks.map((st) => (
                     <div key={st.id} className="flex items-center gap-2 text-sm">
                       <button onClick={() => toggleSubtask(todo.id, st.id)} role="checkbox" aria-checked={st.completed} aria-label={`Subtask: ${st.text}`}

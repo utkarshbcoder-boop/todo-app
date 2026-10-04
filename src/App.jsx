@@ -153,6 +153,27 @@ function AppContent() {
     setShowForm(true)
   }
 
+  const getGreeting = () => {
+    const h = new Date().getHours()
+    if (h < 12) return 'Good morning'
+    if (h < 17) return 'Good afternoon'
+    return 'Good evening'
+  }
+
+  const completions = useTodoStore((s) => s.completions)
+  const currentStreak = useMemo(() => {
+    if (!completions?.length) return 0
+    const dates = new Set(completions.map((c) => c.date))
+    let streak = 0
+    const d = new Date()
+    if (!dates.has(d.toISOString().split('T')[0])) d.setDate(d.getDate() - 1)
+    while (dates.has(d.toISOString().split('T')[0])) {
+      streak++
+      d.setDate(d.getDate() - 1)
+    }
+    return streak
+  }, [completions])
+
   if (!initialized) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-pink-50 via-rose-50 to-indigo-50 dark:from-[#160507] dark:via-[#1a0809] dark:to-[#120306] flex items-center justify-center">
@@ -190,7 +211,7 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-rose-50 to-indigo-50 dark:from-[#160507] dark:via-[#1a0809] dark:to-[#120306] transition-colors duration-500">
+      <div className="min-h-screen bg-gradient-to-br from-violet-50 via-fuchsia-50 to-indigo-100 dark:from-[#0a0618] dark:via-[#0d0820] dark:to-[#070312] transition-colors duration-500">
       <BackgroundScene />
       <ThemeToggle />
       <FeatureGate feature="i18n"><LanguageToggle /></FeatureGate>
@@ -243,14 +264,21 @@ function AppContent() {
           </div>
 
           <div className="glass-elevated inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 rounded-2xl mb-3 sm:mb-4">
-            <svg className="w-6 h-6 sm:w-8 sm:h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-6 h-6 sm:w-8 sm:h-8 text-violet-600 dark:text-violet-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
             </svg>
           </div>
-          <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white tracking-tight">{t('appName')}</h1>
+          <p className="text-xs sm:text-sm font-medium text-violet-500 dark:text-violet-300 mb-1">{getGreeting()}{user?.name ? `, ${user.name.split(' ')[0]}` : ''}!</p>
+          <h1 className="text-3xl sm:text-4xl font-bold text-gradient tracking-tight">{t('appName')}</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-2 text-base sm:text-lg">
             {stats.active === 0 ? 'You have nothing to do!' : `You have ${stats.active} task${stats.active === 1 ? '' : 's'} remaining`}
           </p>
+          {currentStreak > 0 && (
+            <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+              <span className="text-orange-500 streak-glow" aria-hidden="true">🔥</span>
+              <span className="text-xs font-semibold text-orange-600 dark:text-orange-400">{currentStreak} day streak</span>
+            </div>
+          )}
           {stats.total > 0 && <div className="mt-4 flex justify-center"><ProgressRing percent={stats.percent} /></div>}
 
           <div className="mt-4 flex justify-center gap-2">
