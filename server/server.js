@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import cookieParser from 'cookie-parser'
 import { OAuth2Client } from 'google-auth-library'
+import admin from 'firebase-admin'
 import nodemailer from 'nodemailer'
 import rateLimit from 'express-rate-limit'
 import { PrismaClient } from '@prisma/client'
@@ -60,6 +61,20 @@ const prisma = globalThis.__prisma ?? new PrismaClient()
 if (process.env.VERCEL) globalThis.__prisma = prisma
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || '')
 
+if (!admin.apps.length) {
+  const initOptions = {
+    projectId: process.env.FIREBASE_PROJECT_ID || 'todo-app-5b920',
+  }
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    initOptions.credential = admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON))
+  }
+  try {
+    admin.initializeApp(initOptions)
+  } catch (err) {
+    console.error('Firebase admin init error:', err.message)
+  }
+}
+
 // ─── SECURITY & PERFORMANCE ───
 
 app.use(helmet({
@@ -70,7 +85,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
-      connectSrc: ["'self'", "https://accounts.google.com"],
+      connectSrc: ["'self'", "https://accounts.google.com", "https://*.googleapis.com", "https://*.firebaseio.com", "https://*.firebasedatabase.app", "wss://*.firebaseio.com"],
       frameSrc: ["https://accounts.google.com"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
@@ -560,6 +575,80 @@ app.post('/api/auth/google', async (req, res) => {
   } catch (error) {
     console.error('Google auth error:', error)
     res.status(401).json({ error: 'Invalid Google credential' })
+  }
+})
+
+app.post('/api/auth/firebase', authLimiter, async (req, res) => {
+  const { idToken } = req.body
+  if (!idToken) return res.status(400).json({ error: 'idToken required' })
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(idToken)
+    const { uid, email, name, picture } = decoded
+
+    if (!email) return res.status(401).json({ error: 'Firebase account has no email' })
+
+    const normalizedEmail = email.toLowerCase()
+    let user = await prisma.user.findFirst({
+      where: { OR: [{ email: normalizedEmail }, { id: uid }] },
+    })
+
+    const isNewUser = !user
+
+    if (!user) {
+      const role = ADMIN_EMAILS.includes(normalizedEmail) ? 'admin' : 'user'
+      user = await prisma.user.create({
+        data: { id: uid, email: normalizedEmail, name: name || email.split('@')[0], picture: picture || null, role },
+      })
+    } else {
+      const role = ADMIN_EMAILS.includes(normalizedEmail) ? 'admin' : user.role
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          lastLogin: new Date(),
+          loginCount: { increment: 1 },
+          picture: picture || user.picture,
+          name: name || user.name,
+          role,
+        },
+      })
+    }
+
+    if (user.status === 'banned' || user.status === 'suspended') {
+      return res.status(403).json({ error: 'Account is not accessible. Contact support.' })
+    }
+
+    const token = generateToken(user.id)
+    const refreshToken = generateRefreshToken(user.id)
+
+    await prisma.session.create({
+      data: {
+        userId: user.id,
+        token: refreshToken,
+        userAgent: req.headers['user-agent'],
+        ip: req.ip,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
+    })
+
+    await trackActivity(user.id, isNewUser ? 'register' : 'login', { method: 'firebase' })
+
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: IS_PRODUCTION,
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      path: '/api/auth',
+    })
+
+    res.json({
+      success: true,
+      token,
+      user: { id: user.id, email: user.email, name: user.name, picture: user.picture, role: user.role },
+    })
+  } catch (error) {
+    console.error('Firebase auth error:', error.message)
+    res.status(401).json({ error: 'Invalid Firebase token' })
   }
 })
 

@@ -1,52 +1,16 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useUserStore } from '../store/userStore'
 import BackgroundScene from './Background'
 
-const API_URL = import.meta.env.VITE_API_URL || '/api'
-
 export default function LoginPage() {
-  const { loginStart, login, register, googleLogin, isLoading, error, clearError, loginSuccess } = useUserStore()
-  const googleButtonRef = useRef(null)
+  const { login, register, googleLogin, isLoading, error, clearError } = useUserStore()
   const [mode, setMode] = useState('login')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [success, setSuccess] = useState('')
-
-  const handleGoogleResponse = useCallback(async (response) => {
-    await googleLogin(response.credential)
-  }, [googleLogin])
-
-
-
-  useEffect(() => {
-    if (!import.meta.env.VITE_GOOGLE_CLIENT_ID) return
-
-    const loadGoogleScript = () => {
-      if (window.google) { initGoogleSignIn(); return }
-      const script = document.createElement('script')
-      script.src = 'https://accounts.google.com/gsi/client'
-      script.async = true
-      script.defer = true
-      script.onload = () => initGoogleSignIn()
-      document.head.appendChild(script)
-    }
-
-    const initGoogleSignIn = () => {
-      if (!window.google || !window.google.accounts) { setTimeout(initGoogleSignIn, 100); return }
-      window.google.accounts.id.initialize({
-        client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
-        callback: handleGoogleResponse,
-      })
-      window.google.accounts.id.renderButton(googleButtonRef.current, {
-        theme: 'outline', size: 'large', width: '100%', text: 'continue_with', shape: 'rectangular',
-      })
-    }
-
-    loadGoogleScript()
-  }, [handleGoogleResponse])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -160,19 +124,19 @@ export default function LoginPage() {
                 </button>
               </form>
 
-              {import.meta.env.VITE_GOOGLE_CLIENT_ID && (
-                <>
-                  <div className="relative">
-                    <div className="absolute inset-0 flex items-center">
-                      <div className="w-full border-t border-gray-200 dark:border-gray-600" />
-                    </div>
-                    <div className="relative flex justify-center text-sm">
-                      <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">or continue with</span>
-                    </div>
-                  </div>
-                  <div ref={googleButtonRef} className="w-full" />
-                </>
-              )}
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-200 dark:border-gray-600" />
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">or continue with</span>
+                </div>
+              </div>
+              <button type="button" onClick={() => googleLogin()} disabled={isLoading}
+                className="w-full py-3 px-4 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 font-medium rounded-xl hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors cursor-pointer flex items-center justify-center gap-2">
+                <svg className="w-5 h-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"/><path fill="#FBBC05" d="M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z"/></svg>
+                Continue with Google
+              </button>
 
               <div className="text-center">
                 <button onClick={switchMode} className="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium cursor-pointer">
